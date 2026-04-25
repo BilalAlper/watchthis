@@ -764,6 +764,7 @@ function RecommendationsPanel({
   onAddToWatchlist,
   onAddToWatched,
   onPlayTrailer,
+  onEditPreferences,
 }: {
   preferences: MoviePreferences | null
   watchedKeys: string[]
@@ -771,6 +772,7 @@ function RecommendationsPanel({
   onAddToWatchlist: (item: SearchResultItem) => void
   onAddToWatched: (item: SearchResultItem) => void
   onPlayTrailer: (sourceId: number, mediaType: 'movie' | 'tv') => void
+  onEditPreferences?: () => void
 }) {
   const [recommendations, setRecommendations] = useState<SearchResultItem[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -819,6 +821,14 @@ function RecommendationsPanel({
             Tercihlerine gore hazirlanmis, henuz izlemedigin icerikler.
           </p>
         </div>
+        {onEditPreferences && (
+          <button
+            onClick={onEditPreferences}
+            className="text-sm font-medium text-indigo-600 hover:text-indigo-500 hover:underline dark:text-indigo-400"
+          >
+            Tercihlerimi Duzenle
+          </button>
+        )}
       </div>
 
       {isLoading ? (
@@ -900,7 +910,15 @@ function RecommendationsPanel({
   )
 }
 
-function UserContentArea({ userId, preferences }: { userId: string; preferences: MoviePreferences | null }) {
+function UserContentArea({
+  userId,
+  preferences,
+  onEditPreferences,
+}: {
+  userId: string
+  preferences: MoviePreferences | null
+  onEditPreferences?: () => void
+}) {
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>(() => readStoredWatchlist(userId))
   const [watchedItems, setWatchedItems] = useState<WatchedItem[]>(() => readStoredWatched(userId))
   const [trailerKey, setTrailerKey] = useState<string | null>(null)
@@ -1144,6 +1162,7 @@ function UserContentArea({ userId, preferences }: { userId: string; preferences:
             onAddToWatchlist={addToWatchlist}
             onAddToWatched={addToWatched}
             onPlayTrailer={handlePlayTrailer}
+            onEditPreferences={onEditPreferences}
           />
         </div>
       )}
@@ -1526,7 +1545,12 @@ export default function WatchThisApp() {
           </h1>
         </section>
 
-        <UserContentArea key={profile.uid} userId={profile.uid} preferences={savedPreferences} />
+        <UserContentArea
+          key={profile.uid}
+          userId={profile.uid}
+          preferences={savedPreferences}
+          onEditPreferences={() => setIsEditingPreferences(true)}
+        />
       </main>
     </div>
   )

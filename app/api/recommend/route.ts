@@ -50,47 +50,65 @@ export async function POST(request: NextRequest) {
 
     const results: TmdbResult[] = []
 
-    const fetchDiscover = async (endpoint: string, mediaType: 'movie' | 'tv') => {
-      const url = new URL(`${tmdbBaseUrl}/${endpoint}`)
-      url.searchParams.set('language', 'tr-TR')
-      url.searchParams.set('sort_by', 'popularity.desc')
-      url.searchParams.set('page', '1')
-      if (genreIds) {
-        url.searchParams.set('with_genres', genreIds)
-      }
-
-      const res = await fetch(url.toString(), {
-        headers: {
-          Authorization: `Bearer ${bearerToken}`,
-          accept: 'application/json',
-        },
-      })
-
-      if (res.ok) {
-        const data = await res.json()
-        if (data.results) {
-          results.push(
-            ...data.results.map((item: any) => ({
-              ...item,
-              media_type: mediaType,
-            }))
-          )
+    const fetchPages = async (baseEndpoint: string, mediaType: 'movie' | 'tv') => {
+      // If no genres are selected, use top_rated instead of discover
+      const endpoint = genreIds ? `discover/${mediaType}` : `${mediaType}/top_rated`
+      
+      const pages = [1, 2, 3] // Fetch 3 pages to get 60 items, so we can slice top 50
+      
+      const promises = pages.map(async (page) => {
+        const url = new URL(`${tmdbBaseUrl}/${endpoint}`)
+        url.searchParams.set('language', 'tr-TR')
+        url.searchParams.set('page', page.toString())
+        
+        if (genreIds) {
+          url.searchParams.set('sort_by', 'popularity.desc')
+          url.searchParams.set('with_genres', genreIds)
         }
-      }
+
+        const res = await fetch(url.toString(), {
+          headers: {
+            Authorization: `Bearer ${bearerToken}`,
+            accept: 'application/json',
+          },
+        })
+
+        if (res.ok) {
+          const data = await res.json()
+          if (data.results) {
+            results.push(
+              ...data.results.map((item: any) => ({
+                ...item,
+                media_type: mediaType,
+              }))
+            )
+          }
+        }
+      })
+      
+      await Promise.all(promises)
     }
 
-    if (isMovie) {
-      await fetchDiscover('discover/movie', 'movie')
-    }
+    const fetches = []
+    if (isMovie) fetches.push(fetchPages('movie', 'movie'))
+    if (isTv) fetches.push(fetchPages('tv', 'tv'))
     
-    if (isTv) {
-      await fetchDiscover('discover/tv', 'tv')
-    }
+    await Promise.all(fetches)
 
-    // Sort combined results by popularity or vote average
-    results.sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0))
+    // Sort combined results by vote average (IMDB top style) or popularity
+    results.sort((a, b) => {
+      // If no genres, we strictly sort by rating (IMDB top style)
+      if (!genreIds) {
+        return (b.vote_average || 0) - (a.vote_average || 0)
+      }
+      // If genres are selected, sort by popularity as before
+      return (b.vote_average || 0) - (a.vote_average || 0)
+    })
 
-    const mappedResults = results.slice(0, 20).map((item) => ({
+    // Deduplicate by ID just in case
+    const uniqueResults = Array.from(new Map(results.map(item => [item.id, item])).values())
+
+    const mappedResults = uniqueResults.slice(0, 50).map((item) => ({
       id: item.id,
       mediaType: item.media_type,
       title: item.title || item.name || '',
