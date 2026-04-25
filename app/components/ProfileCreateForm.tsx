@@ -28,6 +28,7 @@ type ProfileCreateFormProps = {
 export default function ProfileCreateForm({ onProfileCreated }: ProfileCreateFormProps) {
   const [form, setForm] = useState(initialFormState)
   const [message, setMessage] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
 
   const updateField =
     (field: keyof ProfileFormState) =>
@@ -108,7 +109,7 @@ export default function ProfileCreateForm({ onProfileCreated }: ProfileCreateFor
         <label className="grid gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-200">
           Sifre
           <input
-            type="password"
+            type={showPassword ? 'text' : 'password'}
             name="password"
             value={form.password}
             onChange={updateField('password')}
@@ -123,7 +124,7 @@ export default function ProfileCreateForm({ onProfileCreated }: ProfileCreateFor
         <label className="grid gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-200">
           Sifre tekrar
           <input
-            type="password"
+            type={showPassword ? 'text' : 'password'}
             name="confirmPassword"
             value={form.confirmPassword}
             onChange={updateField('confirmPassword')}
@@ -133,6 +134,16 @@ export default function ProfileCreateForm({ onProfileCreated }: ProfileCreateFor
             required
             className="rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50"
           />
+        </label>
+
+        <label className="flex items-center gap-3 text-sm font-medium text-zinc-700 dark:text-zinc-200">
+          <input
+            type="checkbox"
+            checked={showPassword}
+            onChange={(event) => setShowPassword(event.target.checked)}
+            className="size-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-800"
+          />
+          Sifreyi goster
         </label>
       </div>
 

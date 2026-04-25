@@ -1,24 +1,13 @@
 'use client'
 
-import { useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import ProfileCreateForm, { type CreatedProfile } from './ProfileCreateForm'
 
 const storageKey = 'watchthis-current-profile'
 const profileChangeEvent = 'watchthis-profile-change'
 
-function readCurrentProfile() {
-  const savedProfile = window.localStorage.getItem(storageKey)
-
-  if (!savedProfile) {
-    return null
-  }
-
-  try {
-    return JSON.parse(savedProfile) as CreatedProfile
-  } catch {
-    window.localStorage.removeItem(storageKey)
-    return null
-  }
+function readCurrentProfileSnapshot() {
+  return window.localStorage.getItem(storageKey)
 }
 
 function subscribeToProfileChanges(onStoreChange: () => void) {
@@ -38,11 +27,23 @@ function subscribeToProfileChanges(onStoreChange: () => void) {
 }
 
 export default function WatchThisApp() {
-  const profile = useSyncExternalStore(
+  const profileSnapshot = useSyncExternalStore(
     subscribeToProfileChanges,
-    readCurrentProfile,
+    readCurrentProfileSnapshot,
     () => null,
   )
+  const profile = useMemo(() => {
+    if (!profileSnapshot) {
+      return null
+    }
+
+    try {
+      return JSON.parse(profileSnapshot) as CreatedProfile
+    } catch {
+      window.localStorage.removeItem(storageKey)
+      return null
+    }
+  }, [profileSnapshot])
 
   const handleProfileCreated = (createdProfile: CreatedProfile) => {
     window.localStorage.setItem(storageKey, JSON.stringify(createdProfile))
