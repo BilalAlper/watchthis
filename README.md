@@ -18,6 +18,26 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+## Firebase Authentication Setup
+
+This project uses Firebase Authentication (Email/Password) for sign-up and login.
+
+1. Create a Firebase project from [Firebase Console](https://console.firebase.google.com/).
+2. In **Authentication > Sign-in method**, enable **Email/Password**.
+3. In **Project settings > General > Your apps**, create a Web app and copy config values.
+4. Add a `.env.local` file in project root:
+
+```bash
+NEXT_PUBLIC_FIREBASE_API_KEY=...
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=...
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
+NEXT_PUBLIC_FIREBASE_APP_ID=...
+```
+
+5. Restart the dev server after editing environment variables.
+
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Learn More
