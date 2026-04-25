@@ -37,6 +37,7 @@ const genreOptions = ['Aksiyon', 'Bilim kurgu', 'Komedi', 'Dram', 'Korku', 'Roma
 const formatOptions = ['Film', 'Dizi', 'Mini dizi', 'Anime']
 const moodOptions = ['Rahat ve eglenceli', 'Dusundurucu', 'Heyecanli', 'Duygusal', 'Karanlik ve gerilimli']
 const PREFERENCES_LOAD_TIMEOUT_MS = 8000
+const PREFERENCES_SAVE_TIMEOUT_MS = 8000
 
 function getPreferenceStorageKey(userId: string) {
   return `watchthis:onboarding:${userId}`
@@ -551,10 +552,27 @@ export default function WatchThisApp() {
 
     try {
       if (db) {
-        await set(ref(db, getPreferenceDatabasePath(profile.uid)), {
-          ...preferences,
-          updatedAt: Date.now(),
+        const preferenceRef = ref(db, getPreferenceDatabasePath(profile.uid))
+        let timeoutId: number | undefined
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = window.setTimeout(() => {
+            reject(new Error('preferences-save-timeout'))
+          }, PREFERENCES_SAVE_TIMEOUT_MS)
         })
+
+        try {
+          await Promise.race([
+            set(preferenceRef, {
+              ...preferences,
+              updatedAt: Date.now(),
+            }),
+            timeoutPromise,
+          ])
+        } finally {
+          if (timeoutId !== undefined) {
+            window.clearTimeout(timeoutId)
+          }
+        }
       }
 
       window.localStorage.setItem(getPreferenceStorageKey(profile.uid), JSON.stringify(preferences))
