@@ -25,7 +25,7 @@ import ProfileCreateForm, {
   type SignUpPayload,
 } from './ProfileCreateForm'
 import ContentSearchPanel, { type SearchResultItem } from './ContentSearchPanel'
-import { auth, db, isFirebaseConfigured } from '@/lib/firebase'
+import { auth, db, isFirebaseConfigured, missingFirebaseConfigKeys } from '@/lib/firebase'
 
 type MoviePreferences = {
   genres: string[]
@@ -45,6 +45,11 @@ type WatchlistItem = {
   releaseDate: string
 }
 
+type WatchedItem = WatchlistItem & {
+  userRating: number
+  watchedAt: number
+}
+
 const genreOptions = ['Aksiyon', 'Bilim kurgu', 'Komedi', 'Dram', 'Korku', 'Romantik', 'Animasyon', 'Belgesel']
 const formatOptions = ['Film', 'Dizi', 'Mini dizi', 'Anime']
 const moodOptions = ['Rahat ve eglenceli', 'Dusundurucu', 'Heyecanli', 'Duygusal', 'Karanlik ve gerilimli']
@@ -57,6 +62,10 @@ function getPreferenceStorageKey(userId: string) {
 
 function getWatchlistStorageKey(userId: string) {
   return `watchthis:watchlist:${userId}`
+}
+
+function getWatchedStorageKey(userId: string) {
+  return `watchthis:watched:${userId}`
 }
 
 function readStoredWatchlist(userId: string): WatchlistItem[] {
@@ -91,8 +100,46 @@ function readStoredWatchlist(userId: string): WatchlistItem[] {
   }
 }
 
+function readStoredWatched(userId: string): WatchedItem[] {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  const storedValue = window.localStorage.getItem(getWatchedStorageKey(userId))
+  if (!storedValue) {
+    return []
+  }
+
+  try {
+    const parsedValue = JSON.parse(storedValue) as Partial<WatchedItem>[]
+
+    return Array.isArray(parsedValue)
+      ? parsedValue
+        .filter((item) => typeof item.title === 'string' && item.title.trim().length > 0)
+        .map((item) => ({
+          id: typeof item.id === 'string' ? item.id : crypto.randomUUID(),
+          sourceId: typeof item.sourceId === 'number' ? item.sourceId : 0,
+          title: item.title?.trim() ?? '',
+          mediaType: item.mediaType === 'tv' ? 'tv' : 'movie',
+          overview: typeof item.overview === 'string' ? item.overview : '',
+          posterPath: typeof item.posterPath === 'string' ? item.posterPath : null,
+          voteAverage: typeof item.voteAverage === 'number' ? item.voteAverage : 0,
+          releaseDate: typeof item.releaseDate === 'string' ? item.releaseDate : '',
+          userRating: typeof item.userRating === 'number' ? Math.min(Math.max(item.userRating, 1), 10) : 7,
+          watchedAt: typeof item.watchedAt === 'number' ? item.watchedAt : Date.now(),
+        }))
+      : []
+  } catch {
+    return []
+  }
+}
+
 function getPreferenceDatabasePath(userId: string) {
   return `users/${userId}/preferences`
+}
+
+function getWatchedDatabasePath(userId: string) {
+  return `users/${userId}/watched`
 }
 
 function normalizePreferences(preferences: Partial<MoviePreferences> | null | undefined): MoviePreferences {
@@ -438,9 +485,11 @@ function AccountMenu({
 function WatchlistPanel({
   items,
   onRemove,
+  onMarkWatched,
 }: {
   items: WatchlistItem[]
   onRemove: (itemId: string) => void
+  onMarkWatched: (item: WatchlistItem, rating: number) => void
 }) {
   return (
     <section className="w-full">
@@ -457,6 +506,7 @@ function WatchlistPanel({
         <div className="grid gap-3">
           {items.map((item) => {
             const posterUrl = item.posterPath ? `https://image.tmdb.org/t/p/w185${item.posterPath}` : null
+            const ratingSelectId = `watchlist-rating-${item.id}`
 
             return (
               <div
@@ -489,13 +539,39 @@ function WatchlistPanel({
                     {item.overview || 'Aciklama bulunamadi.'}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onRemove(item.id)}
-                  className="self-start rounded-lg bg-zinc-100 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
-                >
-                  Sil
-                </button>
+                <div className="flex shrink-0 flex-col gap-2">
+                  <label className="sr-only" htmlFor={ratingSelectId}>
+                    {item.title} puani
+                  </label>
+                  <select
+                    id={ratingSelectId}
+                    defaultValue="8"
+                    className="rounded-lg border border-zinc-300 bg-white px-2 py-2 text-sm font-semibold text-zinc-800 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+                  >
+                    {Array.from({ length: 10 }, (_, index) => index + 1).map((rating) => (
+                      <option key={rating} value={rating}>
+                        {rating}/10
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const ratingInput = document.getElementById(ratingSelectId) as HTMLSelectElement | null
+                      onMarkWatched(item, Number(ratingInput?.value ?? 8))
+                    }}
+                    className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                  >
+                    Izledim
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRemove(item.id)}
+                    className="rounded-lg bg-zinc-100 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                  >
+                    Sil
+                  </button>
+                </div>
               </div>
             )
           })}
@@ -509,14 +585,130 @@ function WatchlistPanel({
   )
 }
 
+function WatchedPanel({
+  items,
+  onRemove,
+  onUpdateRating,
+}: {
+  items: WatchedItem[]
+  onRemove: (itemId: string) => void
+  onUpdateRating: (itemId: string, rating: number) => void
+}) {
+  const averageRating = items.length
+    ? items.reduce((sum, item) => sum + item.userRating, 0) / items.length
+    : 0
+
+  return (
+    <section className="w-full">
+      <div className="mb-4 flex flex-col gap-1">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold text-zinc-800 dark:text-zinc-100">
+              Bu zamana kadar izlenilenler
+            </h2>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              Izledigin film ve diziler puaninla birlikte burada tutulur.
+            </p>
+          </div>
+          {items.length > 0 ? (
+            <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
+              Ortalama {averageRating.toFixed(1)}/10
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="grid gap-3">
+          {items.map((item) => {
+            const posterUrl = item.posterPath ? `https://image.tmdb.org/t/p/w185${item.posterPath}` : null
+
+            return (
+              <div
+                key={item.id}
+                className="flex gap-3 rounded-lg border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+              >
+                <div className="h-24 w-16 shrink-0 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-800">
+                  {posterUrl ? (
+                    <Image
+                      src={posterUrl}
+                      alt={`${item.title} afisi`}
+                      width={185}
+                      height={278}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-zinc-500 dark:text-zinc-400">
+                      Afis yok
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-zinc-950 dark:text-zinc-50">{item.title}</p>
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                    {item.mediaType === 'movie' ? 'Film' : 'Dizi'}
+                    {item.releaseDate ? ` - ${item.releaseDate.slice(0, 4)}` : ''}
+                    {` - Senin puanin ${item.userRating}/10`}
+                  </p>
+                  <p className="mt-1 line-clamp-2 text-sm leading-5 text-zinc-600 dark:text-zinc-300">
+                    {item.overview || 'Aciklama bulunamadi.'}
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-col gap-2">
+                  <label className="sr-only" htmlFor={`watched-rating-${item.id}`}>
+                    {item.title} puani
+                  </label>
+                  <select
+                    id={`watched-rating-${item.id}`}
+                    value={item.userRating}
+                    onChange={(event) => onUpdateRating(item.id, Number(event.target.value))}
+                    className="rounded-lg border border-zinc-300 bg-white px-2 py-2 text-sm font-semibold text-zinc-800 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+                  >
+                    {Array.from({ length: 10 }, (_, index) => index + 1).map((rating) => (
+                      <option key={rating} value={rating}>
+                        {rating}/10
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => onRemove(item.id)}
+                    className="rounded-lg bg-zinc-100 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                  >
+                    Sil
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-8 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+          Henuz izledigin bir film veya dizi kaydedilmedi.
+        </div>
+      )}
+    </section>
+  )
+}
+
 function UserContentArea({ userId }: { userId: string }) {
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>(() => readStoredWatchlist(userId))
+  const [watchedItems, setWatchedItems] = useState<WatchedItem[]>(() => readStoredWatched(userId))
 
   useEffect(() => {
     window.localStorage.setItem(getWatchlistStorageKey(userId), JSON.stringify(watchlistItems))
   }, [watchlistItems, userId])
 
+  useEffect(() => {
+    window.localStorage.setItem(getWatchedStorageKey(userId), JSON.stringify(watchedItems))
+
+    if (db) {
+      void set(ref(db, getWatchedDatabasePath(userId)), watchedItems)
+    }
+  }, [watchedItems, userId])
+
   const watchlistKeys = watchlistItems.map((item) => `${item.mediaType}-${item.sourceId}`)
+  const watchedKeys = watchedItems.map((item) => `${item.mediaType}-${item.sourceId}`)
 
   const addToWatchlist = (item: SearchResultItem) => {
     setWatchlistItems((current) => {
@@ -547,10 +739,62 @@ function UserContentArea({ userId }: { userId: string }) {
     setWatchlistItems((current) => current.filter((item) => item.id !== itemId))
   }
 
+  const addToWatched = (item: WatchlistItem | SearchResultItem, rating = 8) => {
+    setWatchedItems((current) => {
+      const sourceId = 'sourceId' in item ? item.sourceId : item.id
+      const key = `${item.mediaType}-${sourceId}`
+      const alreadyExists = current.some((currentItem) => `${currentItem.mediaType}-${currentItem.sourceId}` === key)
+
+      if (alreadyExists) {
+        return current.map((currentItem) =>
+          `${currentItem.mediaType}-${currentItem.sourceId}` === key
+            ? { ...currentItem, userRating: rating }
+            : currentItem,
+        )
+      }
+
+      return [
+        {
+          id: crypto.randomUUID(),
+          sourceId,
+          title: item.title,
+          mediaType: item.mediaType,
+          overview: item.overview,
+          posterPath: item.posterPath,
+          voteAverage: item.voteAverage,
+          releaseDate: item.releaseDate,
+          userRating: rating,
+          watchedAt: Date.now(),
+        },
+        ...current,
+      ]
+    })
+
+    if ('sourceId' in item) {
+      removeFromWatchlist(item.id)
+    }
+  }
+
+  const removeFromWatched = (itemId: string) => {
+    setWatchedItems((current) => current.filter((item) => item.id !== itemId))
+  }
+
+  const updateWatchedRating = (itemId: string, rating: number) => {
+    setWatchedItems((current) =>
+      current.map((item) => (item.id === itemId ? { ...item, userRating: rating } : item)),
+    )
+  }
+
   return (
     <>
-      <ContentSearchPanel onAddToWatchlist={addToWatchlist} watchlistKeys={watchlistKeys} />
-      <WatchlistPanel items={watchlistItems} onRemove={removeFromWatchlist} />
+      <ContentSearchPanel
+        onAddToWatchlist={addToWatchlist}
+        onAddToWatched={addToWatched}
+        watchlistKeys={watchlistKeys}
+        watchedKeys={watchedKeys}
+      />
+      <WatchlistPanel items={watchlistItems} onRemove={removeFromWatchlist} onMarkWatched={addToWatched} />
+      <WatchedPanel items={watchedItems} onRemove={removeFromWatched} onUpdateRating={updateWatchedRating} />
     </>
   )
 }
@@ -800,13 +1044,14 @@ export default function WatchThisApp() {
               degiskenleri tanimlamalisin.
             </p>
             <ul className="mt-4 list-disc space-y-1 pl-6 text-sm">
-              <li>NEXT_PUBLIC_FIREBASE_API_KEY</li>
-              <li>NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN</li>
-              <li>NEXT_PUBLIC_FIREBASE_PROJECT_ID</li>
-              <li>NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET</li>
-              <li>NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID</li>
-              <li>NEXT_PUBLIC_FIREBASE_APP_ID</li>
+              {missingFirebaseConfigKeys.map((key) => (
+                <li key={key}>{key}</li>
+              ))}
             </ul>
+            <p className="mt-4 text-sm leading-6">
+              NEXT_PUBLIC_FIREBASE_DATABASE_URL sadece Realtime Database senkronizasyonu icin gereklidir.
+              Tanimsizsa tercihlerin bu cihazda saklanir.
+            </p>
           </section>
         </main>
       </div>

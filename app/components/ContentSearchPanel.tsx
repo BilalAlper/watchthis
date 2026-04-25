@@ -20,10 +20,17 @@ export type SearchResultItem = {
 
 type ContentSearchPanelProps = {
   onAddToWatchlist: (item: SearchResultItem) => void
+  onAddToWatched: (item: SearchResultItem) => void
   watchlistKeys: string[]
+  watchedKeys: string[]
 }
 
-export default function ContentSearchPanel({ onAddToWatchlist, watchlistKeys }: ContentSearchPanelProps) {
+export default function ContentSearchPanel({
+  onAddToWatchlist,
+  onAddToWatched,
+  watchlistKeys,
+  watchedKeys,
+}: ContentSearchPanelProps) {
   const [query, setQuery] = useState('')
   const [searchType, setSearchType] = useState<SearchType>('all')
   const [searchResults, setSearchResults] = useState<SearchResultItem[]>([])
@@ -189,6 +196,7 @@ export default function ContentSearchPanel({ onAddToWatchlist, watchlistKeys }: 
               const posterUrl = item.posterPath ? `https://image.tmdb.org/t/p/w342${item.posterPath}` : null
               const watchlistKey = `${item.mediaType}-${item.id}`
               const isInWatchlist = watchlistKeys.includes(watchlistKey)
+              const isInWatched = watchedKeys.includes(watchlistKey)
 
               return (
                 <article
@@ -210,7 +218,7 @@ export default function ContentSearchPanel({ onAddToWatchlist, watchlistKeys }: 
                       </div>
                     )}
                   </div>
-                  <div className="space-y-2 p-4 pb-16">
+                  <div className="space-y-2 p-4">
                     <h3 className="line-clamp-1 text-base font-semibold text-zinc-900 dark:text-zinc-50">
                       {item.title}
                     </h3>
@@ -228,9 +236,18 @@ export default function ContentSearchPanel({ onAddToWatchlist, watchlistKeys }: 
                       disabled={isInWatchlist}
                       aria-label={isInWatchlist ? `${item.title} listede` : `${item.title} izleneceklere ekle`}
                       title={isInWatchlist ? 'Listede' : 'Izleneceklere ekle'}
-                      className="absolute bottom-4 left-1/2 flex size-11 -translate-x-1/2 translate-y-12 items-center justify-center rounded-full bg-indigo-600 text-2xl font-semibold leading-none text-white opacity-0 shadow-lg transition duration-200 hover:bg-indigo-700 focus:translate-y-0 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-600 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 dark:focus:ring-offset-zinc-900 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-400"
+                      className="w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-600 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-400"
                     >
                       {isInWatchlist ? '✓' : '+'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onAddToWatched(item)}
+                      disabled={isInWatched}
+                      aria-label={isInWatched ? `${item.title} izlediklerinde` : `${item.title} izlediklerine ekle`}
+                      className="mt-3 w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-600 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-400"
+                    >
+                      {isInWatched ? 'Izlendi' : 'Izledim'}
                     </button>
                   </div>
                 </article>
