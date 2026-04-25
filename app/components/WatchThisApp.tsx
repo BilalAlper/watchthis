@@ -776,6 +776,12 @@ function RecommendationsPanel({
 }) {
   const [recommendations, setRecommendations] = useState<SearchResultItem[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [visibleCount, setVisibleCount] = useState(12)
+
+  // Local filtering to instantly remove watched items without refetching
+  useEffect(() => {
+    setRecommendations((prev) => prev.filter(item => !watchedKeys.includes(`${item.mediaType}-${item.id}`)))
+  }, [watchedKeys])
 
   useEffect(() => {
     let isMounted = true
@@ -788,27 +794,28 @@ function RecommendationsPanel({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ genres: preferences.genres, formats: preferences.formats })
         })
-        if (res.ok) {
-          const data = await res.json()
-          if (isMounted) {
-            const filtered = (data.results || []).filter((item: any) => {
-              const key = `${item.mediaType}-${item.sourceId}`
-              return !watchedKeys.includes(key)
-            })
-            setRecommendations(filtered)
-          }
+        if (!res.ok) throw new Error('API error')
+        
+        const data = await res.json()
+        const filtered = (data.results || []).filter((item: any) => {
+          const key = `${item.mediaType}-${item.id}`
+          return !watchedKeys.includes(key)
+        })
+        if (isMounted) {
+          setRecommendations(filtered)
+          setVisibleCount(12) // Reset visible count on new fetch
         }
-      } catch (e) {
-        console.error(e)
+      } catch (err) {
+        console.error('Oneriler alinamadi:', err)
       } finally {
         if (isMounted) setIsLoading(false)
       }
     }
 
     void fetchRecommendations()
-
+    
     return () => { isMounted = false }
-  }, [preferences, watchedKeys])
+  }, [preferences]) // Removed watchedKeys from dependencies to prevent jumpy refetches
 
   if (!preferences) return null
 
@@ -834,75 +841,88 @@ function RecommendationsPanel({
       {isLoading ? (
         <p className="text-sm text-zinc-600 dark:text-zinc-400">Oneriler yukleniyor...</p>
       ) : recommendations.length > 0 ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {recommendations.map((item) => {
-            const posterUrl = item.posterPath ? `https://image.tmdb.org/t/p/w342${item.posterPath}` : null
-            const watchlistKey = `${item.mediaType}-${item.id}`
-            const isInWatchlist = watchlistKeys.includes(watchlistKey)
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {recommendations.slice(0, visibleCount).map((item) => {
+              const posterUrl = item.posterPath ? `https://image.tmdb.org/t/p/w342${item.posterPath}` : null
+              const watchlistKey = `${item.mediaType}-${item.id}`
+              const isInWatchlist = watchlistKeys.includes(watchlistKey)
 
-            return (
-              <article
-                key={`rec-${item.mediaType}-${item.id}`}
-                className="group relative overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:scale-[1.03] hover:shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
-              >
-                <div className="h-64 w-full bg-zinc-200 dark:bg-zinc-800">
-                  {posterUrl ? (
-                    <Image
-                      src={posterUrl}
-                      alt={`${item.title} afisi`}
-                      width={342}
-                      height={513}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-zinc-500 dark:text-zinc-400">
-                      Afis yok
-                    </div>
-                  )}
-                </div>
-                <div className="flex flex-col gap-2 p-4">
-                  <h3 className="line-clamp-1 text-base font-semibold text-zinc-900 dark:text-zinc-50">
-                    {item.title}
-                  </h3>
-                  <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                    {item.mediaType === 'movie' ? 'Film' : 'Dizi'}
-                    {item.releaseDate ? ` • ${item.releaseDate.slice(0, 4)}` : ''}
-                    {item.voteAverage > 0 ? ` • ${item.voteAverage.toFixed(1)}/10` : ''}
-                  </p>
-                  <p className="line-clamp-3 text-sm leading-6 text-zinc-600 dark:text-zinc-300">
-                    {item.overview || 'Aciklama bulunamadi.'}
-                  </p>
-                  <div className="flex flex-col gap-2 pt-4">
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => onPlayTrailer(item.id, item.mediaType)}
-                        className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
-                      >
-                        Fragman
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onAddToWatchlist(item)}
-                        disabled={isInWatchlist}
-                        className="flex-1 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:bg-zinc-300 disabled:text-zinc-600 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-400"
-                      >
-                        {isInWatchlist ? 'Listede' : '+ Liste'}
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => onAddToWatched(item)}
-                      className="w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                    >
-                      Izledim
-                    </button>
+              return (
+                <article
+                  key={`rec-${item.mediaType}-${item.id}`}
+                  className="group relative overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:scale-[1.03] hover:shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
+                >
+                  <div className="h-64 w-full bg-zinc-200 dark:bg-zinc-800">
+                    {posterUrl ? (
+                      <Image
+                        src={posterUrl}
+                        alt={`${item.title} afisi`}
+                        width={342}
+                        height={513}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                        Afis yok
+                      </div>
+                    )}
                   </div>
-                </div>
-              </article>
-            )
-          })}
-        </div>
+                  <div className="flex flex-col gap-2 p-4">
+                    <h3 className="line-clamp-1 text-base font-semibold text-zinc-900 dark:text-zinc-50">
+                      {item.title}
+                    </h3>
+                    <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      {item.mediaType === 'movie' ? 'Film' : 'Dizi'}
+                      {item.releaseDate ? ` • ${item.releaseDate.slice(0, 4)}` : ''}
+                      {item.voteAverage > 0 ? ` • ${item.voteAverage.toFixed(1)}/10` : ''}
+                    </p>
+                    <p className="line-clamp-3 text-sm leading-6 text-zinc-600 dark:text-zinc-300">
+                      {item.overview || 'Aciklama bulunamadi.'}
+                    </p>
+                    <div className="flex flex-col gap-2 pt-4">
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onPlayTrailer(item.id, item.mediaType)}
+                          className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
+                        >
+                          Fragman
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onAddToWatchlist(item)}
+                          disabled={isInWatchlist}
+                          className="flex-1 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:bg-zinc-300 disabled:text-zinc-600 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-400"
+                        >
+                          {isInWatchlist ? 'Listede' : '+ Liste'}
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onAddToWatched(item)}
+                        className="w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                      >
+                        Izledim
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+          {visibleCount < recommendations.length && (
+            <div className="mt-6 flex justify-center">
+              <button
+                type="button"
+                onClick={() => setVisibleCount((prev) => prev + 12)}
+                className="rounded-full border border-zinc-200 bg-white px-6 py-2.5 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:focus:ring-offset-zinc-950"
+              >
+                Daha fazla goster
+              </button>
+            </div>
+          )}
+        </>
       ) : (
         <p className="text-sm text-zinc-600 dark:text-zinc-400">Su an icin yeni bir oneri bulunamadi.</p>
       )}

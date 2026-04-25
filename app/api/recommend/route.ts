@@ -50,9 +50,8 @@ export async function POST(request: NextRequest) {
 
     const results: TmdbResult[] = []
 
-    const fetchPages = async (baseEndpoint: string, mediaType: 'movie' | 'tv') => {
-      // If no genres are selected, use top_rated instead of discover
-      const endpoint = genreIds ? `discover/${mediaType}` : `${mediaType}/top_rated`
+    const fetchPages = async (mediaType: 'movie' | 'tv') => {
+      const endpoint = `discover/${mediaType}`
       
       const pages = [1, 2, 3] // Fetch 3 pages to get 60 items, so we can slice top 50
       
@@ -60,10 +59,14 @@ export async function POST(request: NextRequest) {
         const url = new URL(`${tmdbBaseUrl}/${endpoint}`)
         url.searchParams.set('language', 'tr-TR')
         url.searchParams.set('page', page.toString())
+        url.searchParams.set('without_original_language', 'hi,ta,te,kn,ml') // Filter out Indian movies
         
         if (genreIds) {
           url.searchParams.set('sort_by', 'popularity.desc')
           url.searchParams.set('with_genres', genreIds)
+        } else {
+          url.searchParams.set('sort_by', 'vote_average.desc')
+          url.searchParams.set('vote_count.gte', '2000') // Ensure it only picks well-known top rated
         }
 
         const res = await fetch(url.toString(), {
@@ -90,8 +93,8 @@ export async function POST(request: NextRequest) {
     }
 
     const fetches = []
-    if (isMovie) fetches.push(fetchPages('movie', 'movie'))
-    if (isTv) fetches.push(fetchPages('tv', 'tv'))
+    if (isMovie) fetches.push(fetchPages('movie'))
+    if (isTv) fetches.push(fetchPages('tv'))
     
     await Promise.all(fetches)
 
