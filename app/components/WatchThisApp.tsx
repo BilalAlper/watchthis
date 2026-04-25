@@ -1,6 +1,14 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import {
+  type Dispatch,
+  type FormEvent,
+  type SetStateAction,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
@@ -16,6 +24,223 @@ import ProfileCreateForm, {
 } from './ProfileCreateForm'
 import ContentSearchPanel from './ContentSearchPanel'
 import { auth, isFirebaseConfigured } from '@/lib/firebase'
+
+type MoviePreferences = {
+  genres: string[]
+  formats: string[]
+  moods: string[]
+  notes: string
+}
+
+const genreOptions = ['Aksiyon', 'Bilim kurgu', 'Komedi', 'Dram', 'Korku', 'Romantik', 'Animasyon', 'Belgesel']
+const formatOptions = ['Film', 'Dizi', 'Mini dizi', 'Anime']
+const moodOptions = ['Rahat ve eglenceli', 'Dusundurucu', 'Heyecanli', 'Duygusal', 'Karanlik ve gerilimli']
+
+function getPreferenceStorageKey(userId: string) {
+  return `watchthis:onboarding:${userId}`
+}
+
+function readStoredPreferences(userId: string): MoviePreferences | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const storedValue = window.localStorage.getItem(getPreferenceStorageKey(userId))
+  if (!storedValue || storedValue === 'complete') {
+    return null
+  }
+
+  try {
+    const parsedValue = JSON.parse(storedValue) as Partial<MoviePreferences>
+
+    return {
+      genres: Array.isArray(parsedValue.genres) ? parsedValue.genres : [],
+      formats: Array.isArray(parsedValue.formats) ? parsedValue.formats : ['Film'],
+      moods: Array.isArray(parsedValue.moods) ? parsedValue.moods : [],
+      notes: typeof parsedValue.notes === 'string' ? parsedValue.notes : '',
+    }
+  } catch {
+    return null
+  }
+}
+
+function isFirstAuthSession(user: User) {
+  const createdAt = user.metadata.creationTime ? new Date(user.metadata.creationTime).getTime() : 0
+  const signedInAt = user.metadata.lastSignInTime ? new Date(user.metadata.lastSignInTime).getTime() : 0
+
+  if (!createdAt || !signedInAt) {
+    return false
+  }
+
+  return Math.abs(createdAt - signedInAt) < 10000
+}
+
+function PreferenceQuestionsForm({
+  profileName,
+  initialPreferences,
+  onCancel,
+  onComplete,
+}: {
+  profileName: string
+  initialPreferences?: MoviePreferences | null
+  onCancel?: () => void
+  onComplete: (preferences: MoviePreferences) => void
+}) {
+  const [genres, setGenres] = useState<string[]>(initialPreferences?.genres ?? [])
+  const [formats, setFormats] = useState<string[]>(initialPreferences?.formats ?? ['Film'])
+  const [moods, setMoods] = useState<string[]>(initialPreferences?.moods ?? [])
+  const [notes, setNotes] = useState(initialPreferences?.notes ?? '')
+  const [message, setMessage] = useState('')
+
+  const toggleOption = (
+    value: string,
+    setValues: Dispatch<SetStateAction<string[]>>,
+  ) => {
+    setValues((current) =>
+      current.includes(value) ? current.filter((item) => item !== value) : [...current, value],
+    )
+    setMessage('')
+  }
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (genres.length === 0) {
+      setMessage('En az bir tur secmelisin.')
+      return
+    }
+
+    if (moods.length === 0) {
+      setMessage('En az bir izleme modu secmelisin.')
+      return
+    }
+
+    onComplete({
+      genres,
+      formats,
+      moods,
+      notes: notes.trim(),
+    })
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="w-full rounded-lg border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+    >
+      <div className="mb-6">
+        <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">Ilk kurulum</p>
+        <h2 className="mt-1 text-2xl font-bold tracking-tight text-zinc-950 dark:text-zinc-50">
+          Izleme tercihlerin, {profileName}
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+          Zevklerini istedigin zaman guncelleyebilirsin. Kaydetme isini sonra veritabanina baglayabilirsin.
+        </p>
+      </div>
+
+      <fieldset className="grid gap-3">
+        <legend className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+          Hangi tur filmleri seversin?
+        </legend>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {genreOptions.map((genre) => (
+            <label
+              key={genre}
+              className="flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 dark:border-zinc-700 dark:text-zinc-200"
+            >
+              <input
+                type="checkbox"
+                checked={genres.includes(genre)}
+                onChange={() => toggleOption(genre, setGenres)}
+                className="size-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-800"
+              />
+              {genre}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <fieldset className="mt-5 grid gap-3">
+        <legend className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+          Daha cok ne izlersin?
+        </legend>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {formatOptions.map((format) => (
+            <label
+              key={format}
+              className="flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 dark:border-zinc-700 dark:text-zinc-200"
+            >
+              <input
+                type="checkbox"
+                checked={formats.includes(format)}
+                onChange={() => toggleOption(format, setFormats)}
+                className="size-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-800"
+              />
+              {format}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <fieldset className="mt-5 grid gap-3">
+        <legend className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+          Genelde nasil bir sey ararsin?
+        </legend>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {moodOptions.map((option) => (
+            <label
+              key={option}
+              className="flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 dark:border-zinc-700 dark:text-zinc-200"
+            >
+              <input
+                type="checkbox"
+                checked={moods.includes(option)}
+                onChange={() => toggleOption(option, setMoods)}
+                className="size-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-800"
+              />
+              {option}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <label className="mt-5 grid gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+        Eklemek istedigin tercih var mi?
+        <textarea
+          value={notes}
+          onChange={(event) => setNotes(event.target.value)}
+          placeholder="Ornek: cok uzun filmler olmasin, aileyle izlenebilir olsun..."
+          rows={3}
+          className="resize-none rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base font-normal text-zinc-950 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50"
+        />
+      </label>
+
+      {message ? (
+        <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">
+          {message}
+        </p>
+      ) : null}
+
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+        {onCancel ? (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="w-full rounded-lg bg-zinc-100 px-4 py-3 font-semibold text-zinc-800 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+          >
+            Vazgec
+          </button>
+        ) : null}
+        <button
+          type="submit"
+          className="w-full rounded-lg bg-indigo-600 px-4 py-3 font-semibold text-white transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-900"
+        >
+          Tercihlerimi kaydet
+        </button>
+      </div>
+    </form>
+  )
+}
 
 function mapFirebaseAuthError(error: unknown) {
   const maybeErrorCode =
@@ -42,10 +267,110 @@ function mapFirebaseAuthError(error: unknown) {
   }
 }
 
+function AccountMenu({
+  profileName,
+  onProfile,
+  onPreferences,
+  onLogout,
+}: {
+  profileName: string
+  onProfile: () => void
+  onPreferences: () => void
+  onLogout: () => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (menuRef.current?.contains(event.target as Node)) {
+        return
+      }
+
+      setIsOpen(false)
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isOpen])
+
+  const runMenuAction = (action: () => void) => {
+    setIsOpen(false)
+    action()
+  }
+
+  return (
+    <div ref={menuRef} className="relative flex items-center gap-3">
+      <span className="max-w-40 truncate text-sm font-medium text-zinc-700 dark:text-zinc-200">
+        {profileName}
+      </span>
+      <button
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        aria-expanded={isOpen}
+        aria-label="Hesap menusu"
+        className="flex size-10 items-center justify-center rounded-lg bg-zinc-100 text-zinc-800 transition hover:bg-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+      >
+        <span className="grid gap-1">
+          <span className="block h-0.5 w-5 rounded bg-current" />
+          <span className="block h-0.5 w-5 rounded bg-current" />
+          <span className="block h-0.5 w-5 rounded bg-current" />
+        </span>
+      </button>
+
+      {isOpen ? (
+        <div className="absolute right-0 z-10 mt-2 w-52 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
+            <p className="truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50">{profileName}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => runMenuAction(onProfile)}
+            className="w-full px-4 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Profilim
+          </button>
+          <button
+            type="button"
+            onClick={() => runMenuAction(onPreferences)}
+            className="w-full px-4 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Tercihlerim
+          </button>
+          <button
+            type="button"
+            onClick={() => runMenuAction(onLogout)}
+            className="w-full px-4 py-2 text-left text-sm font-medium text-red-600 transition hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30"
+          >
+            Cikis yap
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function WatchThisApp() {
   const [profile, setProfile] = useState<User | null>(null)
   const [isAuthReady, setIsAuthReady] = useState(!auth)
   const [isBusy, setIsBusy] = useState(false)
+  const [completedPreferenceUserIds, setCompletedPreferenceUserIds] = useState<string[]>([])
+  const [isEditingPreferences, setIsEditingPreferences] = useState(false)
 
   useEffect(() => {
     if (!auth) {
@@ -124,9 +449,48 @@ export default function WatchThisApp() {
     }
   }
 
+  const handlePreferencesComplete = (preferences: MoviePreferences) => {
+    if (!profile) {
+      return
+    }
+
+    console.log('Movie preferences:', {
+      userId: profile.uid,
+      email: profile.email,
+      preferences,
+    })
+    window.localStorage.setItem(getPreferenceStorageKey(profile.uid), JSON.stringify(preferences))
+    setCompletedPreferenceUserIds((current) =>
+      current.includes(profile.uid) ? current : [...current, profile.uid],
+    )
+    setIsEditingPreferences(false)
+  }
+
+  const handleProfileMenu = () => {
+    setIsEditingPreferences(false)
+  }
+
+  const handlePreferencesMenu = () => {
+    setIsEditingPreferences(true)
+  }
+
   const profileName = useMemo(() => {
     return profile?.displayName || profile?.email || 'Kullanici'
   }, [profile])
+
+  const shouldAskPreferences = useMemo(() => {
+    if (!profile || !isFirstAuthSession(profile) || completedPreferenceUserIds.includes(profile.uid)) {
+      return false
+    }
+
+    if (typeof window === 'undefined') {
+      return false
+    }
+
+    return !window.localStorage.getItem(getPreferenceStorageKey(profile.uid))
+  }, [completedPreferenceUserIds, profile])
+
+  const storedPreferences = profile ? readStoredPreferences(profile.uid) : null
 
   if (!isFirebaseConfigured) {
     return (
@@ -203,6 +567,35 @@ export default function WatchThisApp() {
     )
   }
 
+  if (shouldAskPreferences || isEditingPreferences) {
+    return (
+      <div className="min-h-screen bg-zinc-50 font-sans dark:bg-black">
+        <nav className="w-full border-b border-zinc-200 bg-white px-6 py-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4">
+            <span className="text-2xl font-bold tracking-tight text-black dark:text-zinc-50">
+              WatchThis
+            </span>
+            <AccountMenu
+              profileName={profileName}
+              onProfile={handleProfileMenu}
+              onPreferences={handlePreferencesMenu}
+              onLogout={handleLogout}
+            />
+          </div>
+        </nav>
+
+        <main className="mx-auto grid min-h-[calc(100vh-73px)] w-full max-w-3xl items-center px-4 py-8">
+          <PreferenceQuestionsForm
+            profileName={profileName}
+            initialPreferences={storedPreferences}
+            onCancel={isEditingPreferences ? () => setIsEditingPreferences(false) : undefined}
+            onComplete={handlePreferencesComplete}
+          />
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-zinc-50 font-sans dark:bg-black">
       <nav className="w-full border-b border-zinc-200 bg-white px-6 py-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -210,18 +603,12 @@ export default function WatchThisApp() {
           <span className="text-2xl font-bold tracking-tight text-black dark:text-zinc-50">
             WatchThis
           </span>
-          <div className="flex items-center gap-3">
-            <span className="hidden text-sm font-medium text-zinc-700 dark:text-zinc-200 sm:inline">
-              {profileName}
-            </span>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="rounded-lg bg-zinc-100 px-3 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
-            >
-              Cikis yap
-            </button>
-          </div>
+          <AccountMenu
+            profileName={profileName}
+            onProfile={handleProfileMenu}
+            onPreferences={handlePreferencesMenu}
+            onLogout={handleLogout}
+          />
         </div>
       </nav>
 
