@@ -643,28 +643,15 @@ function WatchedPanel({
   onRemove: (itemId: string) => void
   onUpdateRating: (itemId: string, rating: number) => void
 }) {
-  const averageRating = items.length
-    ? items.reduce((sum, item) => sum + item.userRating, 0) / items.length
-    : 0
-
   return (
     <section className="w-full">
       <div className="mb-4 flex flex-col gap-1">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold text-zinc-800 dark:text-zinc-100">
-              Bu zamana kadar izlenilenler
-            </h2>
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              Izledigin film ve diziler puaninla birlikte burada tutulur.
-            </p>
-          </div>
-          {items.length > 0 ? (
-            <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
-              Ortalama {averageRating.toFixed(1)}/10
-            </p>
-          ) : null}
-        </div>
+        <h2 className="text-xl font-semibold text-zinc-800 dark:text-zinc-100">
+          Bu zamana kadar izlenilenler
+        </h2>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          Izledigin film ve diziler puaninla birlikte burada tutulur.
+        </p>
       </div>
 
       {items.length > 0 ? (
