@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import {
   type Dispatch,
   type FormEvent,
@@ -22,7 +23,7 @@ import ProfileCreateForm, {
   type LoginPayload,
   type SignUpPayload,
 } from './ProfileCreateForm'
-import ContentSearchPanel from './ContentSearchPanel'
+import ContentSearchPanel, { type SearchResultItem } from './ContentSearchPanel'
 import { auth, isFirebaseConfigured } from '@/lib/firebase'
 
 type MoviePreferences = {
@@ -32,12 +33,59 @@ type MoviePreferences = {
   notes: string
 }
 
+type WatchlistItem = {
+  id: string
+  sourceId: number
+  title: string
+  mediaType: 'movie' | 'tv'
+  overview: string
+  posterPath: string | null
+  voteAverage: number
+  releaseDate: string
+}
+
 const genreOptions = ['Aksiyon', 'Bilim kurgu', 'Komedi', 'Dram', 'Korku', 'Romantik', 'Animasyon', 'Belgesel']
 const formatOptions = ['Film', 'Dizi', 'Mini dizi', 'Anime']
 const moodOptions = ['Rahat ve eglenceli', 'Dusundurucu', 'Heyecanli', 'Duygusal', 'Karanlik ve gerilimli']
 
 function getPreferenceStorageKey(userId: string) {
   return `watchthis:onboarding:${userId}`
+}
+
+function getWatchlistStorageKey(userId: string) {
+  return `watchthis:watchlist:${userId}`
+}
+
+function readStoredWatchlist(userId: string): WatchlistItem[] {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  const storedValue = window.localStorage.getItem(getWatchlistStorageKey(userId))
+  if (!storedValue) {
+    return []
+  }
+
+  try {
+    const parsedValue = JSON.parse(storedValue) as Partial<WatchlistItem>[]
+
+    return Array.isArray(parsedValue)
+      ? parsedValue
+        .filter((item) => typeof item.title === 'string' && item.title.trim().length > 0)
+        .map((item) => ({
+          id: typeof item.id === 'string' ? item.id : crypto.randomUUID(),
+          sourceId: typeof item.sourceId === 'number' ? item.sourceId : 0,
+          title: item.title?.trim() ?? '',
+          mediaType: item.mediaType === 'tv' ? 'tv' : 'movie',
+          overview: typeof item.overview === 'string' ? item.overview : '',
+          posterPath: typeof item.posterPath === 'string' ? item.posterPath : null,
+          voteAverage: typeof item.voteAverage === 'number' ? item.voteAverage : 0,
+          releaseDate: typeof item.releaseDate === 'string' ? item.releaseDate : '',
+        }))
+      : []
+  } catch {
+    return []
+  }
 }
 
 function readStoredPreferences(userId: string): MoviePreferences | null {
@@ -365,6 +413,126 @@ function AccountMenu({
   )
 }
 
+function WatchlistPanel({
+  items,
+  onRemove,
+}: {
+  items: WatchlistItem[]
+  onRemove: (itemId: string) => void
+}) {
+  return (
+    <section className="w-full">
+      <div className="mb-4 flex flex-col gap-1">
+        <h2 className="text-xl font-semibold text-zinc-800 dark:text-zinc-100">
+          Izlenecekler
+        </h2>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          Arama sonuclarindan sectigin film ve diziler burada gorunur.
+        </p>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="grid gap-3">
+          {items.map((item) => {
+            const posterUrl = item.posterPath ? `https://image.tmdb.org/t/p/w185${item.posterPath}` : null
+
+            return (
+              <div
+                key={item.id}
+                className="flex gap-3 rounded-lg border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+              >
+                <div className="h-24 w-16 shrink-0 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-800">
+                  {posterUrl ? (
+                    <Image
+                      src={posterUrl}
+                      alt={`${item.title} afisi`}
+                      width={185}
+                      height={278}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center px-2 text-center text-xs text-zinc-500 dark:text-zinc-400">
+                      Afis yok
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-zinc-950 dark:text-zinc-50">{item.title}</p>
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                    {item.mediaType === 'movie' ? 'Film' : 'Dizi'}
+                    {item.releaseDate ? ` - ${item.releaseDate.slice(0, 4)}` : ''}
+                    {item.voteAverage > 0 ? ` - ${item.voteAverage.toFixed(1)}/10` : ''}
+                  </p>
+                  <p className="mt-1 line-clamp-2 text-sm leading-5 text-zinc-600 dark:text-zinc-300">
+                    {item.overview || 'Aciklama bulunamadi.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onRemove(item.id)}
+                  className="self-start rounded-lg bg-zinc-100 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                >
+                  Sil
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-8 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+          Henuz izlenecek film veya dizi eklenmedi. Yukaridaki aramadan bir sonuc sec.
+        </div>
+      )}
+    </section>
+  )
+}
+
+function UserContentArea({ userId }: { userId: string }) {
+  const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>(() => readStoredWatchlist(userId))
+
+  useEffect(() => {
+    window.localStorage.setItem(getWatchlistStorageKey(userId), JSON.stringify(watchlistItems))
+  }, [watchlistItems, userId])
+
+  const watchlistKeys = watchlistItems.map((item) => `${item.mediaType}-${item.sourceId}`)
+
+  const addToWatchlist = (item: SearchResultItem) => {
+    setWatchlistItems((current) => {
+      const key = `${item.mediaType}-${item.id}`
+      const alreadyExists = current.some((currentItem) => `${currentItem.mediaType}-${currentItem.sourceId}` === key)
+
+      if (alreadyExists) {
+        return current
+      }
+
+      return [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          sourceId: item.id,
+          title: item.title,
+          mediaType: item.mediaType,
+          overview: item.overview,
+          posterPath: item.posterPath,
+          voteAverage: item.voteAverage,
+          releaseDate: item.releaseDate,
+        },
+      ]
+    })
+  }
+
+  const removeFromWatchlist = (itemId: string) => {
+    setWatchlistItems((current) => current.filter((item) => item.id !== itemId))
+  }
+
+  return (
+    <>
+      <ContentSearchPanel onAddToWatchlist={addToWatchlist} watchlistKeys={watchlistKeys} />
+      <WatchlistPanel items={watchlistItems} onRemove={removeFromWatchlist} />
+    </>
+  )
+}
+
 export default function WatchThisApp() {
   const [profile, setProfile] = useState<User | null>(null)
   const [isAuthReady, setIsAuthReady] = useState(!auth)
@@ -622,25 +790,7 @@ export default function WatchThisApp() {
           </h1>
         </section>
 
-        <ContentSearchPanel />
-
-        <section className="w-full">
-          <h2 className="mb-3 text-xl font-semibold text-zinc-800 dark:text-zinc-100">
-            To be watch
-          </h2>
-          <div className="flex flex-wrap gap-4">
-            <div className="flex w-48 flex-col items-center rounded-lg bg-white p-4 shadow dark:bg-zinc-800">
-              <div className="mb-2 h-32 w-24 rounded bg-zinc-200 dark:bg-zinc-700" />
-              <span className="font-medium text-zinc-900 dark:text-zinc-50">Interstellar</span>
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">Sci-Fi</span>
-            </div>
-            <div className="flex w-48 flex-col items-center rounded-lg bg-white p-4 shadow dark:bg-zinc-800">
-              <div className="mb-2 h-32 w-24 rounded bg-zinc-200 dark:bg-zinc-700" />
-              <span className="font-medium text-zinc-900 dark:text-zinc-50">Dark</span>
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">Thriller</span>
-            </div>
-          </div>
-        </section>
+        <UserContentArea key={profile.uid} userId={profile.uid} />
       </main>
     </div>
   )
