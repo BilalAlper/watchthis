@@ -473,6 +473,36 @@ function AccountMenu({
           >
             Tercihlerim
           </button>
+          <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
+          <button
+            type="button"
+            onClick={() => runMenuAction(() => document.getElementById('search-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))}
+            className="w-full px-4 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Arama
+          </button>
+          <button
+            type="button"
+            onClick={() => runMenuAction(() => document.getElementById('recommend-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))}
+            className="w-full px-4 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Oneriler
+          </button>
+          <button
+            type="button"
+            onClick={() => runMenuAction(() => document.getElementById('watchlist-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))}
+            className="w-full px-4 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Izleme Listem
+          </button>
+          <button
+            type="button"
+            onClick={() => runMenuAction(() => document.getElementById('watched-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))}
+            className="w-full px-4 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Izlenenler
+          </button>
+          <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
           <button
             type="button"
             onClick={() => runMenuAction(onLogout)}
@@ -727,7 +757,150 @@ function WatchedPanel({
   )
 }
 
-function UserContentArea({ userId }: { userId: string }) {
+function RecommendationsPanel({
+  preferences,
+  watchedKeys,
+  watchlistKeys,
+  onAddToWatchlist,
+  onAddToWatched,
+  onPlayTrailer,
+}: {
+  preferences: MoviePreferences | null
+  watchedKeys: string[]
+  watchlistKeys: string[]
+  onAddToWatchlist: (item: SearchResultItem) => void
+  onAddToWatched: (item: SearchResultItem) => void
+  onPlayTrailer: (sourceId: number, mediaType: 'movie' | 'tv') => void
+}) {
+  const [recommendations, setRecommendations] = useState<SearchResultItem[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+
+  useEffect(() => {
+    let isMounted = true
+    const fetchRecommendations = async () => {
+      if (!preferences) return
+      setIsLoading(true)
+      try {
+        const res = await fetch('/api/recommend', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ genres: preferences.genres, formats: preferences.formats })
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (isMounted) {
+            const filtered = (data.results || []).filter((item: any) => {
+              const key = `${item.mediaType}-${item.sourceId}`
+              return !watchedKeys.includes(key)
+            })
+            setRecommendations(filtered)
+          }
+        }
+      } catch (e) {
+        console.error(e)
+      } finally {
+        if (isMounted) setIsLoading(false)
+      }
+    }
+
+    void fetchRecommendations()
+
+    return () => { isMounted = false }
+  }, [preferences, watchedKeys])
+
+  if (!preferences) return null
+
+  return (
+    <section className="w-full">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-zinc-800 dark:text-zinc-100">Bana Ozel Oneriler</h2>
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Tercihlerine gore hazirlanmis, henuz izlemedigin icerikler.
+          </p>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">Oneriler yukleniyor...</p>
+      ) : recommendations.length > 0 ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {recommendations.map((item) => {
+            const posterUrl = item.posterPath ? `https://image.tmdb.org/t/p/w342${item.posterPath}` : null
+            const watchlistKey = `${item.mediaType}-${item.id}`
+            const isInWatchlist = watchlistKeys.includes(watchlistKey)
+
+            return (
+              <article
+                key={`rec-${item.mediaType}-${item.id}`}
+                className="group relative overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:scale-[1.03] hover:shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
+              >
+                <div className="h-64 w-full bg-zinc-200 dark:bg-zinc-800">
+                  {posterUrl ? (
+                    <Image
+                      src={posterUrl}
+                      alt={`${item.title} afisi`}
+                      width={342}
+                      height={513}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                      Afis yok
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-col gap-2 p-4">
+                  <h3 className="line-clamp-1 text-base font-semibold text-zinc-900 dark:text-zinc-50">
+                    {item.title}
+                  </h3>
+                  <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                    {item.mediaType === 'movie' ? 'Film' : 'Dizi'}
+                    {item.releaseDate ? ` • ${item.releaseDate.slice(0, 4)}` : ''}
+                    {item.voteAverage > 0 ? ` • ${item.voteAverage.toFixed(1)}/10` : ''}
+                  </p>
+                  <p className="line-clamp-3 text-sm leading-6 text-zinc-600 dark:text-zinc-300">
+                    {item.overview || 'Aciklama bulunamadi.'}
+                  </p>
+                  <div className="flex flex-col gap-2 pt-4">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onPlayTrailer(item.id, item.mediaType)}
+                        className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
+                      >
+                        Fragman
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onAddToWatchlist(item)}
+                        disabled={isInWatchlist}
+                        className="flex-1 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:bg-zinc-300 disabled:text-zinc-600 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-400"
+                      >
+                        {isInWatchlist ? 'Listede' : '+ Liste'}
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onAddToWatched(item)}
+                      className="w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                    >
+                      Izledim
+                    </button>
+                  </div>
+                </div>
+              </article>
+            )
+          })}
+        </div>
+      ) : (
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">Su an icin yeni bir oneri bulunamadi.</p>
+      )}
+    </section>
+  )
+}
+
+function UserContentArea({ userId, preferences }: { userId: string; preferences: MoviePreferences | null }) {
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>(() => readStoredWatchlist(userId))
   const [watchedItems, setWatchedItems] = useState<WatchedItem[]>(() => readStoredWatched(userId))
   const [trailerKey, setTrailerKey] = useState<string | null>(null)
@@ -907,17 +1080,39 @@ function UserContentArea({ userId }: { userId: string }) {
   }
 
   return (
-    <>
+    <div className="flex flex-col gap-12">
       {trailerKey && <TrailerModal trailerKey={trailerKey} onClose={() => setTrailerKey(null)} />}
-      <ContentSearchPanel
-        onAddToWatchlist={addToWatchlist}
-        onAddToWatched={addToWatched}
-        onPlayTrailer={handlePlayTrailer}
-        watchlistKeys={watchlistKeys}
-        watchedKeys={watchedKeys}
-      />
-      <WatchlistPanel items={watchlistItems} onRemove={removeFromWatchlist} onPlayTrailer={handlePlayTrailer} onMarkWatched={addToWatched} />
-      <WatchedPanel items={watchedItems} onRemove={removeFromWatched} onUpdateRating={updateWatchedRating} />
+      <div id="search-panel" className="scroll-mt-8">
+        <ContentSearchPanel
+          onAddToWatchlist={addToWatchlist}
+          onAddToWatched={addToWatched}
+          onPlayTrailer={handlePlayTrailer}
+          watchlistKeys={watchlistKeys}
+          watchedKeys={watchedKeys}
+        />
+      </div>
+
+      {preferences && (
+        <div id="recommend-panel" className="scroll-mt-8">
+          <RecommendationsPanel
+            preferences={preferences}
+            watchedKeys={watchedKeys}
+            watchlistKeys={watchlistKeys}
+            onAddToWatchlist={addToWatchlist}
+            onAddToWatched={addToWatched}
+            onPlayTrailer={handlePlayTrailer}
+          />
+        </div>
+      )}
+
+      <div id="watchlist-panel" className="scroll-mt-8">
+        <WatchlistPanel items={watchlistItems} onRemove={removeFromWatchlist} onPlayTrailer={handlePlayTrailer} onMarkWatched={addToWatched} />
+      </div>
+
+      <div id="watched-panel" className="scroll-mt-8">
+        <WatchedPanel items={watchedItems} onRemove={removeFromWatched} onUpdateRating={updateWatchedRating} />
+      </div>
+
       {isTrailerLoading && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="rounded-lg bg-white p-4 shadow-xl dark:bg-zinc-800">
@@ -925,7 +1120,7 @@ function UserContentArea({ userId }: { userId: string }) {
           </div>
         </div>
       )}
-    </>
+    </div>
   )
 }
 
@@ -1288,7 +1483,7 @@ export default function WatchThisApp() {
           </h1>
         </section>
 
-        <UserContentArea key={profile.uid} userId={profile.uid} />
+        <UserContentArea key={profile.uid} userId={profile.uid} preferences={savedPreferences} />
       </main>
     </div>
   )
