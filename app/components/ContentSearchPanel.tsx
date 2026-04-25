@@ -8,7 +8,7 @@ const DEBOUNCE_MS = 450
 
 type SearchType = 'all' | 'movie' | 'tv'
 
-type SearchResultItem = {
+export type SearchResultItem = {
   id: number
   title: string
   mediaType: 'movie' | 'tv'
@@ -18,13 +18,17 @@ type SearchResultItem = {
   releaseDate: string
 }
 
-export default function ContentSearchPanel() {
+type ContentSearchPanelProps = {
+  onAddToWatchlist: (item: SearchResultItem) => void
+  watchlistKeys: string[]
+}
+
+export default function ContentSearchPanel({ onAddToWatchlist, watchlistKeys }: ContentSearchPanelProps) {
   const [query, setQuery] = useState('')
   const [searchType, setSearchType] = useState<SearchType>('all')
   const [searchResults, setSearchResults] = useState<SearchResultItem[]>([])
   const [searchMessage, setSearchMessage] = useState('')
   const [isSearching, setIsSearching] = useState(false)
-  const [hasSearched, setHasSearched] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const cacheRef = useRef(new Map<string, SearchResultItem[]>())
 
@@ -35,7 +39,6 @@ export default function ContentSearchPanel() {
       abortRef.current?.abort()
       setSearchResults([])
       setSearchMessage('')
-      setHasSearched(false)
       return
     }
 
@@ -43,7 +46,6 @@ export default function ContentSearchPanel() {
       abortRef.current?.abort()
       setSearchResults([])
       setSearchMessage(`Daha iyi sonuc icin en az ${MIN_QUERY_LENGTH} karakter yaz.`)
-      setHasSearched(false)
       return
     }
 
@@ -52,7 +54,6 @@ export default function ContentSearchPanel() {
 
     if (cached) {
       setSearchResults(cached)
-      setHasSearched(true)
       setSearchMessage(cached.length === 0 ? 'Sonuc bulunamadi. Farkli bir ad deneyebilirsin.' : '')
       return
     }
@@ -75,14 +76,12 @@ export default function ContentSearchPanel() {
       if (!response.ok) {
         setSearchResults([])
         setSearchMessage(payload.message ?? 'Arama sirasinda bir hata olustu.')
-        setHasSearched(true)
         return
       }
 
       const results = payload.results ?? []
       cacheRef.current.set(cacheKey, results)
       setSearchResults(results)
-      setHasSearched(true)
       setSearchMessage(results.length === 0 ? 'Sonuc bulunamadi. Farkli bir ad deneyebilirsin.' : '')
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -91,7 +90,6 @@ export default function ContentSearchPanel() {
 
       setSearchResults([])
       setSearchMessage('Sunucuya ulasilamadi. Lutfen tekrar dene.')
-      setHasSearched(true)
     } finally {
       if (!controller.signal.aborted) {
         setIsSearching(false)
@@ -189,11 +187,13 @@ export default function ContentSearchPanel() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {searchResults.map((item) => {
               const posterUrl = item.posterPath ? `https://image.tmdb.org/t/p/w342${item.posterPath}` : null
+              const watchlistKey = `${item.mediaType}-${item.id}`
+              const isInWatchlist = watchlistKeys.includes(watchlistKey)
 
               return (
                 <article
                   key={`${item.mediaType}-${item.id}`}
-                  className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+                  className="group relative overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:scale-[1.03] hover:shadow-xl focus-within:-translate-y-1 focus-within:scale-[1.03] focus-within:shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
                 >
                   <div className="h-64 w-full bg-zinc-200 dark:bg-zinc-800">
                     {posterUrl ? (
@@ -210,7 +210,7 @@ export default function ContentSearchPanel() {
                       </div>
                     )}
                   </div>
-                  <div className="space-y-2 p-4">
+                  <div className="space-y-2 p-4 pb-16">
                     <h3 className="line-clamp-1 text-base font-semibold text-zinc-900 dark:text-zinc-50">
                       {item.title}
                     </h3>
@@ -222,18 +222,22 @@ export default function ContentSearchPanel() {
                     <p className="line-clamp-3 text-sm leading-6 text-zinc-600 dark:text-zinc-300">
                       {item.overview || 'Aciklama bulunamadi.'}
                     </p>
+                    <button
+                      type="button"
+                      onClick={() => onAddToWatchlist(item)}
+                      disabled={isInWatchlist}
+                      aria-label={isInWatchlist ? `${item.title} listede` : `${item.title} izleneceklere ekle`}
+                      title={isInWatchlist ? 'Listede' : 'Izleneceklere ekle'}
+                      className="absolute bottom-4 left-1/2 flex size-11 -translate-x-1/2 translate-y-12 items-center justify-center rounded-full bg-indigo-600 text-2xl font-semibold leading-none text-white opacity-0 shadow-lg transition duration-200 hover:bg-indigo-700 focus:translate-y-0 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-600 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 dark:focus:ring-offset-zinc-900 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-400"
+                    >
+                      {isInWatchlist ? '✓' : '+'}
+                    </button>
                   </div>
                 </article>
               )
             })}
           </div>
         </section>
-      ) : null}
-
-      {hasSearched && searchResults.length > 0 ? (
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          Arama sonuclarindan begenilerini izleme listene ekleme adimini bir sonraki adimda baglayabiliriz.
-        </p>
       ) : null}
     </>
   )
