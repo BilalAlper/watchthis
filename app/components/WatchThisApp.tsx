@@ -906,7 +906,7 @@ function UserContentArea({ userId, preferences }: { userId: string; preferences:
   const [trailerKey, setTrailerKey] = useState<string | null>(null)
   const [isTrailerLoading, setIsTrailerLoading] = useState(false)
   const isInitialMount = useRef(true)
-  const isHydrating = useRef(false)
+  const [isHydrated, setIsHydrated] = useState(!db)
 
   const handlePlayTrailer = async (sourceId: number, mediaType: 'movie' | 'tv') => {
     setIsTrailerLoading(true)
@@ -927,18 +927,25 @@ function UserContentArea({ userId, preferences }: { userId: string; preferences:
   }
 
   useEffect(() => {
+    if (!db) return
+    const activeDb = db
     let isCancelled = false
-    const hydrateWatchlist = async () => {
-      if (!db) return
-      
+    
+    const hydrateData = async () => {
       try {
-        const watchlistRef = ref(db, getWatchlistDatabasePath(userId))
-        const snapshot = await get(watchlistRef)
+        const watchlistRef = ref(activeDb, getWatchlistDatabasePath(userId))
+        const watchedRef = ref(activeDb, getWatchedDatabasePath(userId))
+        
+        const [watchlistSnap, watchedSnap] = await Promise.all([
+          get(watchlistRef),
+          get(watchedRef)
+        ])
         
         if (isCancelled) return
         
-        if (snapshot.exists()) {
-          const data = snapshot.val() as Partial<WatchlistItem>[]
+        // Handle watchlist
+        if (watchlistSnap.exists()) {
+          const data = watchlistSnap.val() as Partial<WatchlistItem>[]
           if (Array.isArray(data)) {
             const parsed = data
               .filter((item) => typeof item.title === 'string' && item.title.trim().length > 0)
@@ -953,7 +960,6 @@ function UserContentArea({ userId, preferences }: { userId: string; preferences:
                 releaseDate: typeof item.releaseDate === 'string' ? item.releaseDate : '',
               }))
             
-            isHydrating.current = true
             setWatchlistItems(parsed)
             window.localStorage.setItem(getWatchlistStorageKey(userId), JSON.stringify(parsed))
           }
@@ -963,12 +969,45 @@ function UserContentArea({ userId, preferences }: { userId: string; preferences:
             set(watchlistRef, localItems).catch(console.error)
           }
         }
+
+        // Handle watched
+        if (watchedSnap.exists()) {
+          const data = watchedSnap.val() as Partial<WatchedItem>[]
+          if (Array.isArray(data)) {
+            const parsed = data
+              .filter((item) => typeof item.title === 'string' && item.title.trim().length > 0)
+              .map((item): WatchedItem => ({
+                id: typeof item.id === 'string' ? item.id : crypto.randomUUID(),
+                sourceId: typeof item.sourceId === 'number' ? item.sourceId : 0,
+                title: item.title?.trim() ?? '',
+                mediaType: item.mediaType === 'tv' ? 'tv' : 'movie',
+                overview: typeof item.overview === 'string' ? item.overview : '',
+                posterPath: typeof item.posterPath === 'string' ? item.posterPath : null,
+                voteAverage: typeof item.voteAverage === 'number' ? item.voteAverage : 0,
+                releaseDate: typeof item.releaseDate === 'string' ? item.releaseDate : '',
+                userRating: typeof item.userRating === 'number' ? Math.min(Math.max(item.userRating, 1), 10) : 7,
+                watchedAt: typeof item.watchedAt === 'number' ? item.watchedAt : Date.now(),
+              }))
+            
+            setWatchedItems(parsed)
+            window.localStorage.setItem(getWatchedStorageKey(userId), JSON.stringify(parsed))
+          }
+        } else {
+          const localItems = readStoredWatched(userId)
+          if (localItems.length > 0) {
+            set(watchedRef, localItems).catch(console.error)
+          }
+        }
       } catch (err) {
-        console.error('Watchlist could not be loaded from DB', err)
+        console.error('Data could not be loaded from DB', err)
+      } finally {
+        if (!isCancelled) {
+          setIsHydrated(true)
+        }
       }
     }
     
-    void hydrateWatchlist()
+    void hydrateData()
     
     return () => {
       isCancelled = true
@@ -976,30 +1015,26 @@ function UserContentArea({ userId, preferences }: { userId: string; preferences:
   }, [userId])
 
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false
-      return
-    }
-
-    if (isHydrating.current) {
-      isHydrating.current = false
-      return
-    }
+    if (isInitialMount.current || !isHydrated) return
 
     window.localStorage.setItem(getWatchlistStorageKey(userId), JSON.stringify(watchlistItems))
     if (db) {
       const watchlistRef = ref(db, getWatchlistDatabasePath(userId))
       set(watchlistRef, watchlistItems).catch(console.error)
     }
-  }, [watchlistItems, userId])
+  }, [watchlistItems, userId, isHydrated])
 
   useEffect(() => {
-    window.localStorage.setItem(getWatchedStorageKey(userId), JSON.stringify(watchedItems))
+    if (isInitialMount.current || !isHydrated) {
+      if (isHydrated) isInitialMount.current = false // clear initial mount when hydration finishes
+      return
+    }
 
+    window.localStorage.setItem(getWatchedStorageKey(userId), JSON.stringify(watchedItems))
     if (db) {
       void set(ref(db, getWatchedDatabasePath(userId)), watchedItems)
     }
-  }, [watchedItems, userId])
+  }, [watchedItems, userId, isHydrated])
 
   const watchlistKeys = watchlistItems.map((item) => `${item.mediaType}-${item.sourceId}`)
   const watchedKeys = watchedItems.map((item) => `${item.mediaType}-${item.sourceId}`)
@@ -1076,6 +1111,14 @@ function UserContentArea({ userId, preferences }: { userId: string; preferences:
   const updateWatchedRating = (itemId: string, rating: number) => {
     setWatchedItems((current) =>
       current.map((item) => (item.id === itemId ? { ...item, userRating: rating } : item)),
+    )
+  }
+
+  if (!isHydrated) {
+    return (
+      <div className="flex w-full items-center justify-center p-12">
+        <p className="text-zinc-500 dark:text-zinc-400">Izleme listelerin yukleniyor...</p>
+      </div>
     )
   }
 
