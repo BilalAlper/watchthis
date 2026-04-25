@@ -38,6 +38,23 @@ NEXT_PUBLIC_FIREBASE_APP_ID=...
 
 5. Restart the dev server after editing environment variables.
 
+## Free Movie and TV Search API (TMDB)
+
+This project includes a search endpoint for movies and TV shows using TMDB's free tier.
+
+1. Create a TMDB account at [The Movie Database](https://www.themoviedb.org/).
+2. Go to account settings and create an API Read Access Token (v4 auth).
+3. Add the token to `.env.local`:
+
+```bash
+TMDB_BEARER_TOKEN=...
+```
+
+4. Restart the dev server.
+5. Search from the app UI after logging in.
+
+The app uses a server-side route handler (`app/api/search/route.ts`) so the token is not exposed to the browser.
+
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Learn More

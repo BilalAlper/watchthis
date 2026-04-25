@@ -14,6 +14,7 @@ import ProfileCreateForm, {
   type LoginPayload,
   type SignUpPayload,
 } from './ProfileCreateForm'
+import ContentSearchPanel from './ContentSearchPanel'
 import { auth, isFirebaseConfigured } from '@/lib/firebase'
 
 function mapFirebaseAuthError(error: unknown) {
@@ -234,16 +235,7 @@ export default function WatchThisApp() {
           </h1>
         </section>
 
-        <div className="flex w-full items-center gap-2">
-          <input
-            type="text"
-            placeholder="Film veya dizi ara..."
-            className="min-w-0 flex-1 rounded-lg border border-zinc-300 px-4 py-2 text-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50"
-          />
-          <button className="rounded-lg bg-indigo-600 px-4 py-2 text-white transition hover:bg-indigo-700">
-            Ara
-          </button>
-        </div>
+        <ContentSearchPanel />
 
         <section className="w-full">
           <h2 className="mb-3 text-xl font-semibold text-zinc-800 dark:text-zinc-100">
