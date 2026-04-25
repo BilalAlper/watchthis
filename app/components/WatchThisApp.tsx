@@ -17,13 +17,14 @@ import {
   updateProfile,
   type User,
 } from 'firebase/auth'
+import { get, ref, set } from 'firebase/database'
 import ProfileCreateForm, {
   type AuthActionResult,
   type LoginPayload,
   type SignUpPayload,
 } from './ProfileCreateForm'
 import ContentSearchPanel from './ContentSearchPanel'
-import { auth, isFirebaseConfigured } from '@/lib/firebase'
+import { auth, db, isFirebaseConfigured } from '@/lib/firebase'
 
 type MoviePreferences = {
   genres: string[]
@@ -35,9 +36,23 @@ type MoviePreferences = {
 const genreOptions = ['Aksiyon', 'Bilim kurgu', 'Komedi', 'Dram', 'Korku', 'Romantik', 'Animasyon', 'Belgesel']
 const formatOptions = ['Film', 'Dizi', 'Mini dizi', 'Anime']
 const moodOptions = ['Rahat ve eglenceli', 'Dusundurucu', 'Heyecanli', 'Duygusal', 'Karanlik ve gerilimli']
+const PREFERENCES_LOAD_TIMEOUT_MS = 8000
 
 function getPreferenceStorageKey(userId: string) {
   return `watchthis:onboarding:${userId}`
+}
+
+function getPreferenceDatabasePath(userId: string) {
+  return `users/${userId}/preferences`
+}
+
+function normalizePreferences(preferences: Partial<MoviePreferences> | null | undefined): MoviePreferences {
+  return {
+    genres: Array.isArray(preferences?.genres) ? preferences.genres : [],
+    formats: Array.isArray(preferences?.formats) ? preferences.formats : ['Film'],
+    moods: Array.isArray(preferences?.moods) ? preferences.moods : [],
+    notes: typeof preferences?.notes === 'string' ? preferences.notes : '',
+  }
 }
 
 function readStoredPreferences(userId: string): MoviePreferences | null {
@@ -53,12 +68,7 @@ function readStoredPreferences(userId: string): MoviePreferences | null {
   try {
     const parsedValue = JSON.parse(storedValue) as Partial<MoviePreferences>
 
-    return {
-      genres: Array.isArray(parsedValue.genres) ? parsedValue.genres : [],
-      formats: Array.isArray(parsedValue.formats) ? parsedValue.formats : ['Film'],
-      moods: Array.isArray(parsedValue.moods) ? parsedValue.moods : [],
-      notes: typeof parsedValue.notes === 'string' ? parsedValue.notes : '',
-    }
+    return normalizePreferences(parsedValue)
   } catch {
     return null
   }
@@ -80,11 +90,15 @@ function PreferenceQuestionsForm({
   initialPreferences,
   onCancel,
   onComplete,
+  isSaving,
+  saveError,
 }: {
   profileName: string
   initialPreferences?: MoviePreferences | null
   onCancel?: () => void
-  onComplete: (preferences: MoviePreferences) => void
+  onComplete: (preferences: MoviePreferences) => Promise<void> | void
+  isSaving?: boolean
+  saveError?: string
 }) {
   const [genres, setGenres] = useState<string[]>(initialPreferences?.genres ?? [])
   const [formats, setFormats] = useState<string[]>(initialPreferences?.formats ?? ['Film'])
@@ -102,7 +116,7 @@ function PreferenceQuestionsForm({
     setMessage('')
   }
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
     if (genres.length === 0) {
@@ -115,7 +129,7 @@ function PreferenceQuestionsForm({
       return
     }
 
-    onComplete({
+    await onComplete({
       genres,
       formats,
       moods,
@@ -134,7 +148,7 @@ function PreferenceQuestionsForm({
           Izleme tercihlerin, {profileName}
         </h2>
         <p className="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-          Zevklerini istedigin zaman guncelleyebilirsin. Kaydetme isini sonra veritabanina baglayabilirsin.
+          Zevklerini istedigin zaman guncelleyebilirsin. Tercihlerin hesabina kaydedilir.
         </p>
       </div>
 
@@ -221,6 +235,12 @@ function PreferenceQuestionsForm({
         </p>
       ) : null}
 
+      {saveError ? (
+        <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">
+          {saveError}
+        </p>
+      ) : null}
+
       <div className="mt-6 flex flex-col gap-3 sm:flex-row">
         {onCancel ? (
           <button
@@ -233,9 +253,10 @@ function PreferenceQuestionsForm({
         ) : null}
         <button
           type="submit"
+          disabled={isSaving}
           className="w-full rounded-lg bg-indigo-600 px-4 py-3 font-semibold text-white transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-900"
         >
-          Tercihlerimi kaydet
+          {isSaving ? 'Kaydediliyor...' : 'Tercihlerimi kaydet'}
         </button>
       </div>
     </form>
@@ -371,6 +392,10 @@ export default function WatchThisApp() {
   const [isBusy, setIsBusy] = useState(false)
   const [completedPreferenceUserIds, setCompletedPreferenceUserIds] = useState<string[]>([])
   const [isEditingPreferences, setIsEditingPreferences] = useState(false)
+  const [savedPreferences, setSavedPreferences] = useState<MoviePreferences | null>(null)
+  const [isPreferencesLoading, setIsPreferencesLoading] = useState(false)
+  const [isSavingPreferences, setIsSavingPreferences] = useState(false)
+  const [preferencesSaveError, setPreferencesSaveError] = useState('')
 
   useEffect(() => {
     if (!auth) {
@@ -386,6 +411,73 @@ export default function WatchThisApp() {
       unsubscribe()
     }
   }, [])
+
+  useEffect(() => {
+    if (!profile) {
+      return
+    }
+
+    let isCancelled = false
+
+    const hydratePreferences = async () => {
+      const localPreferences = readStoredPreferences(profile.uid)
+      if (!isCancelled && localPreferences) {
+        setSavedPreferences(localPreferences)
+        setCompletedPreferenceUserIds((current) =>
+          current.includes(profile.uid) ? current : [...current, profile.uid],
+        )
+      }
+
+      if (!db) {
+        setIsPreferencesLoading(false)
+        return
+      }
+
+      setIsPreferencesLoading(true)
+
+      try {
+        const preferenceRef = ref(db, getPreferenceDatabasePath(profile.uid))
+        let timeoutId: number | undefined
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = window.setTimeout(() => {
+            reject(new Error('preferences-load-timeout'))
+          }, PREFERENCES_LOAD_TIMEOUT_MS)
+        })
+
+        const snapshot = (await Promise.race([get(preferenceRef), timeoutPromise])) as Awaited<
+          ReturnType<typeof get>
+        >
+        if (timeoutId !== undefined) {
+          window.clearTimeout(timeoutId)
+        }
+
+        if (isCancelled || !snapshot.exists()) {
+          return
+        }
+
+        const normalizedPreferences = normalizePreferences(snapshot.val() as Partial<MoviePreferences>)
+        setSavedPreferences(normalizedPreferences)
+        window.localStorage.setItem(getPreferenceStorageKey(profile.uid), JSON.stringify(normalizedPreferences))
+        setCompletedPreferenceUserIds((current) =>
+          current.includes(profile.uid) ? current : [...current, profile.uid],
+        )
+      } catch {
+        if (!isCancelled) {
+          setPreferencesSaveError('Tercihler veritabanindan okunamadi. Yerel veri kullaniliyor.')
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsPreferencesLoading(false)
+        }
+      }
+    }
+
+    void hydratePreferences()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [profile])
 
   const handleSignUp = async ({ username, email, password }: SignUpPayload): Promise<AuthActionResult> => {
     if (!auth) {
@@ -449,21 +541,33 @@ export default function WatchThisApp() {
     }
   }
 
-  const handlePreferencesComplete = (preferences: MoviePreferences) => {
+  const handlePreferencesComplete = async (preferences: MoviePreferences) => {
     if (!profile) {
       return
     }
 
-    console.log('Movie preferences:', {
-      userId: profile.uid,
-      email: profile.email,
-      preferences,
-    })
-    window.localStorage.setItem(getPreferenceStorageKey(profile.uid), JSON.stringify(preferences))
-    setCompletedPreferenceUserIds((current) =>
-      current.includes(profile.uid) ? current : [...current, profile.uid],
-    )
-    setIsEditingPreferences(false)
+    setIsSavingPreferences(true)
+    setPreferencesSaveError('')
+
+    try {
+      if (db) {
+        await set(ref(db, getPreferenceDatabasePath(profile.uid)), {
+          ...preferences,
+          updatedAt: Date.now(),
+        })
+      }
+
+      window.localStorage.setItem(getPreferenceStorageKey(profile.uid), JSON.stringify(preferences))
+      setSavedPreferences(preferences)
+      setCompletedPreferenceUserIds((current) =>
+        current.includes(profile.uid) ? current : [...current, profile.uid],
+      )
+      setIsEditingPreferences(false)
+    } catch {
+      setPreferencesSaveError('Tercihler kaydedilemedi. Lutfen tekrar dene.')
+    } finally {
+      setIsSavingPreferences(false)
+    }
   }
 
   const handleProfileMenu = () => {
@@ -479,18 +583,17 @@ export default function WatchThisApp() {
   }, [profile])
 
   const shouldAskPreferences = useMemo(() => {
-    if (!profile || !isFirstAuthSession(profile) || completedPreferenceUserIds.includes(profile.uid)) {
+    if (
+      !profile ||
+      isPreferencesLoading ||
+      savedPreferences ||
+      completedPreferenceUserIds.includes(profile.uid)
+    ) {
       return false
     }
 
-    if (typeof window === 'undefined') {
-      return false
-    }
-
-    return !window.localStorage.getItem(getPreferenceStorageKey(profile.uid))
-  }, [completedPreferenceUserIds, profile])
-
-  const storedPreferences = profile ? readStoredPreferences(profile.uid) : null
+    return isFirstAuthSession(profile)
+  }, [completedPreferenceUserIds, isPreferencesLoading, profile, savedPreferences])
 
   if (!isFirebaseConfigured) {
     return (
@@ -587,9 +690,11 @@ export default function WatchThisApp() {
         <main className="mx-auto grid min-h-[calc(100vh-73px)] w-full max-w-3xl items-center px-4 py-8">
           <PreferenceQuestionsForm
             profileName={profileName}
-            initialPreferences={storedPreferences}
+            initialPreferences={savedPreferences}
             onCancel={isEditingPreferences ? () => setIsEditingPreferences(false) : undefined}
             onComplete={handlePreferencesComplete}
+            isSaving={isSavingPreferences}
+            saveError={preferencesSaveError}
           />
         </main>
       </div>
