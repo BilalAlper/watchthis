@@ -194,7 +194,7 @@ export default function ContentSearchPanel({
         <section className="w-full">
           <h2 className="mb-3 text-xl font-semibold text-zinc-800 dark:text-zinc-100">Arama Sonuclari</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {searchResults.map((item) => {
+            {searchResults.map((item, index) => {
               const posterUrl = item.posterPath ? `https://image.tmdb.org/t/p/w342${item.posterPath}` : null
               const watchlistKey = `${item.mediaType}-${item.id}`
               const isInWatchlist = watchlistKeys.includes(watchlistKey)
@@ -212,6 +212,7 @@ export default function ContentSearchPanel({
                         alt={`${item.title} afisi`}
                         width={342}
                         height={513}
+                        priority={index < 6}
                         className="h-full w-full object-cover"
                       />
                     ) : (
