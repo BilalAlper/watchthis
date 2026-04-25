@@ -439,12 +439,50 @@ function AccountMenu({
   )
 }
 
+function TrailerModal({ trailerKey, onClose }: { trailerKey: string; onClose: () => void }) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
+  return (
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm" 
+      onClick={onClose}
+    >
+      <div 
+        className="relative aspect-video w-full max-w-5xl overflow-hidden rounded-lg bg-black shadow-2xl" 
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button 
+          onClick={onClose} 
+          className="absolute right-4 top-4 z-10 flex size-10 items-center justify-center rounded-full bg-black/50 text-white transition hover:bg-black/80"
+          title="Kapat"
+        >
+          ✕
+        </button>
+        <iframe 
+          src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1`} 
+          className="h-full w-full border-0" 
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+          allowFullScreen 
+        />
+      </div>
+    </div>
+  )
+}
+
 function WatchlistPanel({
   items,
   onRemove,
+  onPlayTrailer,
 }: {
   items: WatchlistItem[]
   onRemove: (itemId: string) => void
+  onPlayTrailer: (sourceId: number, mediaType: 'movie' | 'tv') => void
 }) {
   return (
     <section className="w-full">
@@ -493,13 +531,22 @@ function WatchlistPanel({
                     {item.overview || 'Aciklama bulunamadi.'}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onRemove(item.id)}
-                  className="self-start rounded-lg bg-zinc-100 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
-                >
-                  Sil
-                </button>
+                <div className="flex flex-col gap-2 self-start">
+                  <button
+                    type="button"
+                    onClick={() => onPlayTrailer(item.sourceId, item.mediaType)}
+                    className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-900"
+                  >
+                    Fragman
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRemove(item.id)}
+                    className="rounded-lg bg-zinc-100 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                  >
+                    Sil
+                  </button>
+                </div>
               </div>
             )
           })}
@@ -515,8 +562,28 @@ function WatchlistPanel({
 
 function UserContentArea({ userId }: { userId: string }) {
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>(() => readStoredWatchlist(userId))
+  const [trailerKey, setTrailerKey] = useState<string | null>(null)
+  const [isTrailerLoading, setIsTrailerLoading] = useState(false)
   const isInitialMount = useRef(true)
   const isHydrating = useRef(false)
+
+  const handlePlayTrailer = async (sourceId: number, mediaType: 'movie' | 'tv') => {
+    setIsTrailerLoading(true)
+    try {
+      const res = await fetch(`/api/trailer?id=${sourceId}&type=${mediaType}`)
+      if (!res.ok) return
+      const data = await res.json()
+      if (data.trailerKey) {
+        setTrailerKey(data.trailerKey)
+      } else {
+        alert('Bu icerik icin fragman bulunamadi.')
+      }
+    } catch {
+      alert('Fragman yuklenirken bir hata olustu.')
+    } finally {
+      setIsTrailerLoading(false)
+    }
+  }
 
   useEffect(() => {
     let isCancelled = false
@@ -618,8 +685,16 @@ function UserContentArea({ userId }: { userId: string }) {
 
   return (
     <>
-      <ContentSearchPanel onAddToWatchlist={addToWatchlist} watchlistKeys={watchlistKeys} />
-      <WatchlistPanel items={watchlistItems} onRemove={removeFromWatchlist} />
+      {trailerKey && <TrailerModal trailerKey={trailerKey} onClose={() => setTrailerKey(null)} />}
+      <ContentSearchPanel onAddToWatchlist={addToWatchlist} onPlayTrailer={handlePlayTrailer} watchlistKeys={watchlistKeys} />
+      <WatchlistPanel items={watchlistItems} onRemove={removeFromWatchlist} onPlayTrailer={handlePlayTrailer} />
+      {isTrailerLoading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="rounded-lg bg-white p-4 shadow-xl dark:bg-zinc-800">
+            <p className="font-semibold text-zinc-900 dark:text-zinc-100">Fragman araniyor...</p>
+          </div>
+        </div>
+      )}
     </>
   )
 }

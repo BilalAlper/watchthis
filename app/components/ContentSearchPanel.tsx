@@ -20,10 +20,11 @@ export type SearchResultItem = {
 
 type ContentSearchPanelProps = {
   onAddToWatchlist: (item: SearchResultItem) => void
+  onPlayTrailer: (sourceId: number, mediaType: 'movie' | 'tv') => void
   watchlistKeys: string[]
 }
 
-export default function ContentSearchPanel({ onAddToWatchlist, watchlistKeys }: ContentSearchPanelProps) {
+export default function ContentSearchPanel({ onAddToWatchlist, onPlayTrailer, watchlistKeys }: ContentSearchPanelProps) {
   const [query, setQuery] = useState('')
   const [searchType, setSearchType] = useState<SearchType>('all')
   const [searchResults, setSearchResults] = useState<SearchResultItem[]>([])
@@ -222,16 +223,26 @@ export default function ContentSearchPanel({ onAddToWatchlist, watchlistKeys }: 
                     <p className="line-clamp-3 text-sm leading-6 text-zinc-600 dark:text-zinc-300">
                       {item.overview || 'Aciklama bulunamadi.'}
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => onAddToWatchlist(item)}
-                      disabled={isInWatchlist}
-                      aria-label={isInWatchlist ? `${item.title} listede` : `${item.title} izleneceklere ekle`}
-                      title={isInWatchlist ? 'Listede' : 'Izleneceklere ekle'}
-                      className="absolute bottom-4 left-1/2 flex size-11 -translate-x-1/2 translate-y-12 items-center justify-center rounded-full bg-indigo-600 text-2xl font-semibold leading-none text-white opacity-0 shadow-lg transition duration-200 hover:bg-indigo-700 focus:translate-y-0 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-600 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 dark:focus:ring-offset-zinc-900 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-400"
-                    >
-                      {isInWatchlist ? '✓' : '+'}
-                    </button>
+                    <div className="absolute bottom-4 left-0 flex w-full translate-y-12 items-center justify-center gap-3 opacity-0 transition duration-200 focus-within:translate-y-0 focus-within:opacity-100 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100">
+                      <button
+                        type="button"
+                        onClick={() => onPlayTrailer(item.id, item.mediaType)}
+                        title="Fragman Izle"
+                        className="flex size-11 items-center justify-center rounded-full bg-red-600 text-xl font-semibold leading-none text-white shadow-lg transition duration-200 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-900"
+                      >
+                        ▶
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onAddToWatchlist(item)}
+                        disabled={isInWatchlist}
+                        aria-label={isInWatchlist ? `${item.title} listede` : `${item.title} izleneceklere ekle`}
+                        title={isInWatchlist ? 'Listede' : 'Izleneceklere ekle'}
+                        className="flex size-11 items-center justify-center rounded-full bg-indigo-600 text-2xl font-semibold leading-none text-white shadow-lg transition duration-200 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-600 dark:focus:ring-offset-zinc-900 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-400"
+                      >
+                        {isInWatchlist ? '✓' : '+'}
+                      </button>
+                    </div>
                   </div>
                 </article>
               )
