@@ -1,6 +1,14 @@
 'use client'
 
-import { type Dispatch, type FormEvent, type SetStateAction, useEffect, useMemo, useState } from 'react'
+import {
+  type Dispatch,
+  type FormEvent,
+  type SetStateAction,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
@@ -31,6 +39,30 @@ function getPreferenceStorageKey(userId: string) {
   return `watchthis:onboarding:${userId}`
 }
 
+function readStoredPreferences(userId: string): MoviePreferences | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const storedValue = window.localStorage.getItem(getPreferenceStorageKey(userId))
+  if (!storedValue || storedValue === 'complete') {
+    return null
+  }
+
+  try {
+    const parsedValue = JSON.parse(storedValue) as Partial<MoviePreferences>
+
+    return {
+      genres: Array.isArray(parsedValue.genres) ? parsedValue.genres : [],
+      formats: Array.isArray(parsedValue.formats) ? parsedValue.formats : ['Film'],
+      moods: Array.isArray(parsedValue.moods) ? parsedValue.moods : [],
+      notes: typeof parsedValue.notes === 'string' ? parsedValue.notes : '',
+    }
+  } catch {
+    return null
+  }
+}
+
 function isFirstAuthSession(user: User) {
   const createdAt = user.metadata.creationTime ? new Date(user.metadata.creationTime).getTime() : 0
   const signedInAt = user.metadata.lastSignInTime ? new Date(user.metadata.lastSignInTime).getTime() : 0
@@ -44,15 +76,19 @@ function isFirstAuthSession(user: User) {
 
 function PreferenceQuestionsForm({
   profileName,
+  initialPreferences,
+  onCancel,
   onComplete,
 }: {
   profileName: string
+  initialPreferences?: MoviePreferences | null
+  onCancel?: () => void
   onComplete: (preferences: MoviePreferences) => void
 }) {
-  const [genres, setGenres] = useState<string[]>([])
-  const [formats, setFormats] = useState<string[]>(['Film'])
-  const [moods, setMoods] = useState<string[]>([])
-  const [notes, setNotes] = useState('')
+  const [genres, setGenres] = useState<string[]>(initialPreferences?.genres ?? [])
+  const [formats, setFormats] = useState<string[]>(initialPreferences?.formats ?? ['Film'])
+  const [moods, setMoods] = useState<string[]>(initialPreferences?.moods ?? [])
+  const [notes, setNotes] = useState(initialPreferences?.notes ?? '')
   const [message, setMessage] = useState('')
 
   const toggleOption = (
@@ -94,10 +130,10 @@ function PreferenceQuestionsForm({
       <div className="mb-6">
         <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">Ilk kurulum</p>
         <h2 className="mt-1 text-2xl font-bold tracking-tight text-zinc-950 dark:text-zinc-50">
-          Ne izlemeyi seversin, {profileName}?
+          Izleme tercihlerin, {profileName}
         </h2>
         <p className="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-          Biraz zevkini taniyalim. Kaydetme isini sonra veritabanina baglayabilirsin.
+          Zevklerini istedigin zaman guncelleyebilirsin. Kaydetme isini sonra veritabanina baglayabilirsin.
         </p>
       </div>
 
@@ -184,12 +220,23 @@ function PreferenceQuestionsForm({
         </p>
       ) : null}
 
-      <button
-        type="submit"
-        className="mt-6 w-full rounded-lg bg-indigo-600 px-4 py-3 font-semibold text-white transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-900"
-      >
-        Tercihlerimi tamamla
-      </button>
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+        {onCancel ? (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="w-full rounded-lg bg-zinc-100 px-4 py-3 font-semibold text-zinc-800 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+          >
+            Vazgec
+          </button>
+        ) : null}
+        <button
+          type="submit"
+          className="w-full rounded-lg bg-indigo-600 px-4 py-3 font-semibold text-white transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-900"
+        >
+          Tercihlerimi kaydet
+        </button>
+      </div>
     </form>
   )
 }
@@ -219,11 +266,110 @@ function mapFirebaseAuthError(error: unknown) {
   }
 }
 
+function AccountMenu({
+  profileName,
+  onProfile,
+  onPreferences,
+  onLogout,
+}: {
+  profileName: string
+  onProfile: () => void
+  onPreferences: () => void
+  onLogout: () => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (menuRef.current?.contains(event.target as Node)) {
+        return
+      }
+
+      setIsOpen(false)
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isOpen])
+
+  const runMenuAction = (action: () => void) => {
+    setIsOpen(false)
+    action()
+  }
+
+  return (
+    <div ref={menuRef} className="relative flex items-center gap-3">
+      <span className="max-w-40 truncate text-sm font-medium text-zinc-700 dark:text-zinc-200">
+        {profileName}
+      </span>
+      <button
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        aria-expanded={isOpen}
+        aria-label="Hesap menusu"
+        className="flex size-10 items-center justify-center rounded-lg bg-zinc-100 text-zinc-800 transition hover:bg-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+      >
+        <span className="grid gap-1">
+          <span className="block h-0.5 w-5 rounded bg-current" />
+          <span className="block h-0.5 w-5 rounded bg-current" />
+          <span className="block h-0.5 w-5 rounded bg-current" />
+        </span>
+      </button>
+
+      {isOpen ? (
+        <div className="absolute right-0 z-10 mt-2 w-52 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
+            <p className="truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50">{profileName}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => runMenuAction(onProfile)}
+            className="w-full px-4 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Profilim
+          </button>
+          <button
+            type="button"
+            onClick={() => runMenuAction(onPreferences)}
+            className="w-full px-4 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            Tercihlerim
+          </button>
+          <button
+            type="button"
+            onClick={() => runMenuAction(onLogout)}
+            className="w-full px-4 py-2 text-left text-sm font-medium text-red-600 transition hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30"
+          >
+            Cikis yap
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function WatchThisApp() {
   const [profile, setProfile] = useState<User | null>(null)
   const [isAuthReady, setIsAuthReady] = useState(!auth)
   const [isBusy, setIsBusy] = useState(false)
   const [completedPreferenceUserIds, setCompletedPreferenceUserIds] = useState<string[]>([])
+  const [isEditingPreferences, setIsEditingPreferences] = useState(false)
 
   useEffect(() => {
     if (!auth) {
@@ -307,15 +453,24 @@ export default function WatchThisApp() {
       return
     }
 
-    console.log('First-time movie preferences:', {
+    console.log('Movie preferences:', {
       userId: profile.uid,
       email: profile.email,
       preferences,
     })
-    window.localStorage.setItem(getPreferenceStorageKey(profile.uid), 'complete')
+    window.localStorage.setItem(getPreferenceStorageKey(profile.uid), JSON.stringify(preferences))
     setCompletedPreferenceUserIds((current) =>
       current.includes(profile.uid) ? current : [...current, profile.uid],
     )
+    setIsEditingPreferences(false)
+  }
+
+  const handleProfileMenu = () => {
+    setIsEditingPreferences(false)
+  }
+
+  const handlePreferencesMenu = () => {
+    setIsEditingPreferences(true)
   }
 
   const profileName = useMemo(() => {
@@ -331,8 +486,10 @@ export default function WatchThisApp() {
       return false
     }
 
-    return window.localStorage.getItem(getPreferenceStorageKey(profile.uid)) !== 'complete'
+    return !window.localStorage.getItem(getPreferenceStorageKey(profile.uid))
   }, [completedPreferenceUserIds, profile])
+
+  const storedPreferences = profile ? readStoredPreferences(profile.uid) : null
 
   if (!isFirebaseConfigured) {
     return (
@@ -409,7 +566,7 @@ export default function WatchThisApp() {
     )
   }
 
-  if (shouldAskPreferences) {
+  if (shouldAskPreferences || isEditingPreferences) {
     return (
       <div className="min-h-screen bg-zinc-50 font-sans dark:bg-black">
         <nav className="w-full border-b border-zinc-200 bg-white px-6 py-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -417,18 +574,22 @@ export default function WatchThisApp() {
             <span className="text-2xl font-bold tracking-tight text-black dark:text-zinc-50">
               WatchThis
             </span>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="rounded-lg bg-zinc-100 px-3 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
-            >
-              Cikis yap
-            </button>
+            <AccountMenu
+              profileName={profileName}
+              onProfile={handleProfileMenu}
+              onPreferences={handlePreferencesMenu}
+              onLogout={handleLogout}
+            />
           </div>
         </nav>
 
         <main className="mx-auto grid min-h-[calc(100vh-73px)] w-full max-w-3xl items-center px-4 py-8">
-          <PreferenceQuestionsForm profileName={profileName} onComplete={handlePreferencesComplete} />
+          <PreferenceQuestionsForm
+            profileName={profileName}
+            initialPreferences={storedPreferences}
+            onCancel={isEditingPreferences ? () => setIsEditingPreferences(false) : undefined}
+            onComplete={handlePreferencesComplete}
+          />
         </main>
       </div>
     )
@@ -441,18 +602,12 @@ export default function WatchThisApp() {
           <span className="text-2xl font-bold tracking-tight text-black dark:text-zinc-50">
             WatchThis
           </span>
-          <div className="flex items-center gap-3">
-            <span className="hidden text-sm font-medium text-zinc-700 dark:text-zinc-200 sm:inline">
-              {profileName}
-            </span>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="rounded-lg bg-zinc-100 px-3 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
-            >
-              Cikis yap
-            </button>
-          </div>
+          <AccountMenu
+            profileName={profileName}
+            onProfile={handleProfileMenu}
+            onPreferences={handlePreferencesMenu}
+            onLogout={handleLogout}
+          />
         </div>
       </nav>
 
