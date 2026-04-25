@@ -95,6 +95,10 @@ function getPreferenceDatabasePath(userId: string) {
   return `users/${userId}/preferences`
 }
 
+function getWatchlistDatabasePath(userId: string) {
+  return `users/${userId}/watchlist`
+}
+
 function normalizePreferences(preferences: Partial<MoviePreferences> | null | undefined): MoviePreferences {
   return {
     genres: Array.isArray(preferences?.genres) ? preferences.genres : [],
@@ -511,9 +515,74 @@ function WatchlistPanel({
 
 function UserContentArea({ userId }: { userId: string }) {
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>(() => readStoredWatchlist(userId))
+  const isInitialMount = useRef(true)
+  const isHydrating = useRef(false)
 
   useEffect(() => {
+    let isCancelled = false
+    const hydrateWatchlist = async () => {
+      if (!db) return
+      
+      try {
+        const watchlistRef = ref(db, getWatchlistDatabasePath(userId))
+        const snapshot = await get(watchlistRef)
+        
+        if (isCancelled) return
+        
+        if (snapshot.exists()) {
+          const data = snapshot.val() as Partial<WatchlistItem>[]
+          if (Array.isArray(data)) {
+            const parsed = data
+              .filter((item) => typeof item.title === 'string' && item.title.trim().length > 0)
+              .map((item): WatchlistItem => ({
+                id: typeof item.id === 'string' ? item.id : crypto.randomUUID(),
+                sourceId: typeof item.sourceId === 'number' ? item.sourceId : 0,
+                title: item.title?.trim() ?? '',
+                mediaType: item.mediaType === 'tv' ? 'tv' : 'movie',
+                overview: typeof item.overview === 'string' ? item.overview : '',
+                posterPath: typeof item.posterPath === 'string' ? item.posterPath : null,
+                voteAverage: typeof item.voteAverage === 'number' ? item.voteAverage : 0,
+                releaseDate: typeof item.releaseDate === 'string' ? item.releaseDate : '',
+              }))
+            
+            isHydrating.current = true
+            setWatchlistItems(parsed)
+            window.localStorage.setItem(getWatchlistStorageKey(userId), JSON.stringify(parsed))
+          }
+        } else {
+          const localItems = readStoredWatchlist(userId)
+          if (localItems.length > 0) {
+            set(watchlistRef, localItems).catch(console.error)
+          }
+        }
+      } catch (err) {
+        console.error('Watchlist could not be loaded from DB', err)
+      }
+    }
+    
+    void hydrateWatchlist()
+    
+    return () => {
+      isCancelled = true
+    }
+  }, [userId])
+
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false
+      return
+    }
+
+    if (isHydrating.current) {
+      isHydrating.current = false
+      return
+    }
+
     window.localStorage.setItem(getWatchlistStorageKey(userId), JSON.stringify(watchlistItems))
+    if (db) {
+      const watchlistRef = ref(db, getWatchlistDatabasePath(userId))
+      set(watchlistRef, watchlistItems).catch(console.error)
+    }
   }, [watchlistItems, userId])
 
   const watchlistKeys = watchlistItems.map((item) => `${item.mediaType}-${item.sourceId}`)
